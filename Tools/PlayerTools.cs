@@ -15,14 +15,16 @@ public static class PlayerTools
             Tool("get_player_info",
                 "Get the player's current location, tile position, health, energy, and money.",
                 Props()),
-            GetPlayerInfo
+            GetPlayerInfo,
+            observeOnly: true
         );
 
         registry.Add(
             Tool("get_player_inventory",
                 "List everything currently in the player's inventory with stack sizes.",
                 Props()),
-            GetPlayerInventory
+            GetPlayerInventory,
+            observeOnly: true
         );
 
         registry.Add(

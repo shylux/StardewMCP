@@ -16,7 +16,8 @@ public static class FarmTools
             Tool("get_farm_info",
                 "Get a full overview of the farm: planted crops and their growth state, buildings, animals, and machines currently processing items.",
                 Props()),
-            GetFarmInfo
+            GetFarmInfo,
+            observeOnly: true
         );
     }
 

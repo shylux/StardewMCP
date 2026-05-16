@@ -16,49 +16,56 @@ public static class WorldTools
             Tool("get_game_time",
                 "Get the current in-game date and time (season, day, year, time of day).",
                 Props()),
-            GetGameTime
+            GetGameTime,
+            observeOnly: true
         );
 
         registry.Add(
             Tool("get_weather",
                 "Get today's weather and tomorrow's forecast.",
                 Props()),
-            GetWeather
+            GetWeather,
+            observeOnly: true
         );
 
         registry.Add(
             Tool("find_item",
                 "Search everywhere for an item by name: chests, storage furniture (dressers, cabinets), items placed on tables, dropped items on the ground in all locations, the item recovery service, and the lost & found box.",
                 Props(Str("item_name", "Partial or full item name to search for, e.g. 'Watering Can', 'Coal', 'Parsnip'"))),
-            FindItem
+            FindItem,
+            observeOnly: true
         );
 
         registry.Add(
             Tool("get_location_names",
                 "List all valid location names that can be used with teleport_player.",
                 Props()),
-            GetLocationNames
+            GetLocationNames,
+            observeOnly: true
         );
 
         registry.Add(
             Tool("get_community_center_status",
                 "Get the completion status of the Community Center (or Joja route): which rooms are done and which bundles are still incomplete.",
                 Props()),
-            GetCommunityCenterStatus
+            GetCommunityCenterStatus,
+            observeOnly: true
         );
 
         registry.Add(
             Tool("get_location_warps",
                 "List all warp/exit points in a location: their tile position and where they lead.",
                 Props(Str("location_name", "Location name, e.g. FarmHouse, Farm, Town"))),
-            GetLocationWarps
+            GetLocationWarps,
+            observeOnly: true
         );
 
         registry.Add(
             Tool("get_surroundings",
                 "Scan the player's current location for nearby entities: NPCs, items/machines, crops, trees, bushes, buildings, and exits. Returns distance and direction from the player.",
                 Props(Int("radius", "Tile radius to scan (default: 15)"))),
-            GetSurroundings
+            GetSurroundings,
+            observeOnly: true
         );
     }
 

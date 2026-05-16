@@ -13,49 +13,56 @@ public static class NpcTools
             Tool("get_npc_location",
                 "Get the current map location and tile position of a named NPC.",
                 Props(Str("npc_name", "NPC name, e.g. Abigail, Penny, Harvey, Leah"))),
-            GetNpcLocation
+            GetNpcLocation,
+            observeOnly: true
         );
 
         registry.Add(
             Tool("get_all_npc_locations",
                 "Get the current location of every villager NPC in the game.",
                 Props()),
-            GetAllNpcLocations
+            GetAllNpcLocations,
+            observeOnly: true
         );
 
         registry.Add(
             Tool("get_upcoming_birthdays",
                 "List NPCs whose birthdays fall within the next N in-game days.",
                 Props(Int("days_ahead", "How many days ahead to look (default: 7)"))),
-            GetUpcomingBirthdays
+            GetUpcomingBirthdays,
+            observeOnly: true
         );
 
         registry.Add(
             Tool("get_npc_info",
                 "Get detailed info about an NPC: friendship level, hearts, birthday, relationship status, whether you've talked/gifted today, and today's schedule.",
                 Props(Str("npc_name", "NPC name, e.g. Abigail, Harvey, Penny"))),
-            GetNpcInfo
+            GetNpcInfo,
+            observeOnly: true
         );
 
         registry.Add(
             Tool("get_npc_gift_preferences",
                 "Get the loved and liked gift items for an NPC.",
                 Props(Str("npc_name", "NPC name, e.g. Abigail, Harvey, Penny"))),
-            GetNpcGiftPreferences
+            GetNpcGiftPreferences,
+            observeOnly: true
         );
 
         registry.Add(
             Tool("get_all_friendships",
                 "Get a summary of friendship levels with every NPC you've met.",
                 Props()),
-            GetAllFriendships
+            GetAllFriendships,
+            observeOnly: true
         );
 
         registry.Add(
             Tool("get_spouse_info",
                 "Get detailed information about your spouse: friendship, location, daily status, and Stardrop status. Returns an error if not married.",
                 Props()),
-            GetSpouseInfo
+            GetSpouseInfo,
+            observeOnly: true
         );
     }
 

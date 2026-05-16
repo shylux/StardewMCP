@@ -15,11 +15,11 @@ public class McpServer
 
     private readonly int _port;
 
-    public McpServer(IMonitor monitor, int port)
+    public McpServer(IMonitor monitor, ModConfig config)
     {
         _monitor = monitor;
-        _port = port;
-        _tools = new ToolRegistry();
+        _port = config.Port;
+        _tools = new ToolRegistry(config.OnlyAllowObserveTools);
     }
 
     public void Start()
