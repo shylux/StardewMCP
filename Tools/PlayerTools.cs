@@ -1,8 +1,5 @@
 using StardewModdingAPI;
 using StardewValley;
-using StardewValley.GameData.BigCraftables;
-using StardewValley.GameData.Objects;
-using System.Text;
 using System.Text.Json.Nodes;
 
 namespace StardewMCP.Tools;
@@ -70,6 +67,17 @@ public static class PlayerTools
                 "Make the player perform an emote bubble. Available names: question, angry, exclamation, heart, sleep, sad, happy, x, pause, videogame, musicnote, blush. You can also pass a raw integer ID.",
                 Props(Str("emote", "Emote name or raw integer ID, e.g. 'heart', 'sad', '32'"))),
             PlayerEmote
+        );
+
+        registry.Add(
+            Tool("show_speech_bubble",
+                "Show a speech bubble with text above a named NPC.",
+                Props(
+                    Str("text", "The text to display in the bubble"),
+                    Str("target", "The NPC name to show the bubble above, e.g. 'Abigail', 'Haley'"),
+                    Int("duration", "How long to show the bubble in milliseconds (default: 3000)")
+                )),
+            ShowSpeechBubble
         );
     }
 
@@ -229,6 +237,32 @@ public static class PlayerTools
             }
 
             return $"No item matching '{search}' found in inventory.";
+        });
+    }
+
+    private static Task<string> ShowSpeechBubble(JsonObject args)
+    {
+        var text = args["text"]?.GetValue<string>() ?? "";
+        var target = args["target"]?.GetValue<string>() ?? "";
+        var duration = args["duration"]?.GetValue<int>() ?? 3000;
+
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady)
+                return "No game is loaded.";
+
+            if (string.IsNullOrWhiteSpace(text))
+                return "Text cannot be empty.";
+
+            if (string.IsNullOrWhiteSpace(target))
+                return "target is required (an NPC name like 'Abigail').";
+
+            var npc = Game1.getCharacterFromName(target);
+            if (npc is null)
+                return $"NPC '{target}' not found.";
+
+            npc.showTextAboveHead(text, null, NPC.textStyle_none, duration);
+            return $"Speech bubble shown above {npc.Name}.";
         });
     }
 
