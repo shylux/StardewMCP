@@ -12,6 +12,20 @@ public static class WorldTools
     public static void Register(ToolRegistry registry)
     {
         registry.Add(
+            Tool("get_game_time",
+                "Get the current in-game date and time (season, day, year, time of day).",
+                Props()),
+            GetGameTime
+        );
+
+        registry.Add(
+            Tool("get_weather",
+                "Get today's weather and tomorrow's forecast.",
+                Props()),
+            GetWeather
+        );
+
+        registry.Add(
             Tool("find_item_in_chests",
                 "Search all chests on the farm (and inside the farmhouse) for an item by name. Returns which chest contains it and where that chest is.",
                 Props(Str("item_name", "Partial or full item name to search for, e.g. 'Watering Can', 'Coal', 'Parsnip'"))),
@@ -41,6 +55,59 @@ public static class WorldTools
     }
 
     // ── Handlers ────────────────────────────────────────────────────────────
+
+    private static Task<string> GetWeather(JsonObject args)
+    {
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady)
+                return "No game is loaded.";
+
+            string today;
+            if (Game1.isGreenRain) today = "Green Rain";
+            else if (Game1.isLightning) today = "Thunderstorm";
+            else if (Game1.isRaining) today = "Rainy";
+            else if (Game1.isSnowing) today = "Snowing";
+            else if (Game1.isDebrisWeather) today = "Windy";
+            else today = "Sunny";
+
+            var tomorrow = Game1.weatherForTomorrow switch
+            {
+                Game1.weather_sunny => "Sunny",
+                Game1.weather_rain => "Rainy",
+                Game1.weather_debris => "Windy",
+                Game1.weather_lightning => "Thunderstorm",
+                Game1.weather_festival => "Festival day",
+                Game1.weather_snow => "Snowing",
+                Game1.weather_wedding => "Wedding day",
+                Game1.weather_green_rain => "Green Rain",
+                _ => $"Unknown ({Game1.weatherForTomorrow})"
+            };
+
+            return $"Today: {today}\nTomorrow: {tomorrow}";
+        });
+    }
+
+    private static Task<string> GetGameTime(JsonObject args)
+    {
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady)
+                return "No game is loaded.";
+
+            var date = Game1.Date;
+            var rawTime = Game1.timeOfDay;
+            var hour = rawTime / 100;
+            var minute = rawTime % 100;
+            var ampm = hour >= 12 ? "PM" : "AM";
+            var hour12 = hour > 12 ? hour - 12 : hour == 0 ? 12 : hour;
+
+            return $"Season: {date.Season}\n" +
+                   $"Day: {date.DayOfMonth}\n" +
+                   $"Year: {date.Year}\n" +
+                   $"Time: {hour12}:{minute:D2} {ampm}";
+        });
+    }
 
     private static Task<string> FindItemInChests(JsonObject args)
     {

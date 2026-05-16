@@ -1,7 +1,7 @@
 using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Buildings;
-using StardewValley.Objects;
+using StardewValley.Locations;
 using StardewValley.TerrainFeatures;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -60,7 +60,8 @@ public static class FarmTools
                         totalDays += crop.phaseDays[i];
 
                     int daysLeft = Math.Max(0, totalDays - daysGrown);
-                    crops.Add($"{harvestName} ({daysLeft} day{(daysLeft == 1 ? "" : "s")} left)");
+                    var watered = dirt.state.Value == HoeDirt.watered ? "watered" : "dry";
+                    crops.Add($"{harvestName} ({daysLeft} day{(daysLeft == 1 ? "" : "s")} left, {watered})");
                 }
             }
 

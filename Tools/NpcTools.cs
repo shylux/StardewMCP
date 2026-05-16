@@ -53,7 +53,7 @@ public static class NpcTools
 
         registry.Add(
             Tool("get_spouse_info",
-                "Get detailed information about your spouse: friendship, location, daily status, and stardrop status. Returns an error if not married.",
+                "Get detailed information about your spouse: friendship, location, daily status, and Stardrop status. Returns an error if not married.",
                 Props()),
             GetSpouseInfo
         );
@@ -91,11 +91,9 @@ public static class NpcTools
             {
                 foreach (var character in location.characters)
                 {
-                    if (character is NPC npc && !npc.IsMonster)
-                    {
-                        var tile = npc.TilePoint;
-                        sb.AppendLine($"{npc.Name}: {location.Name} ({tile.X}, {tile.Y})");
-                    }
+                    if (character is not { } npc || npc.IsMonster) continue;
+                    var tile = npc.TilePoint;
+                    sb.AppendLine($"{npc.Name}: {location.Name} ({tile.X}, {tile.Y})");
                 }
             }
 
@@ -123,7 +121,7 @@ public static class NpcTools
             {
                 foreach (var character in location.characters)
                 {
-                    if (character is not NPC npc || npc.Birthday_Season is null)
+                    if (character is not { } npc || npc.Birthday_Season is null)
                         continue;
 
                     var birthdaySeasonIdx = SeasonIndex(npc.Birthday_Season);
@@ -175,7 +173,7 @@ public static class NpcTools
                     : friendship.IsDating() ? "Dating"
                     : "Friend";
 
-                sb.AppendLine($"Friendship: {friendship.Points} pts ({hearts}/{maxHearts / 2} hearts) — {status}");
+                sb.AppendLine($"Friendship: {friendship.Points} pts ({hearts}/{maxHearts} hearts) — {status}");
                 sb.AppendLine($"Talked today: {(friendship.TalkedToToday ? "yes" : "no")}");
                 sb.AppendLine($"Gifts this week: {friendship.GiftsThisWeek}/2{(friendship.GiftsToday != 0 ? " (gifted today)" : "")}");
             }
@@ -221,44 +219,78 @@ public static class NpcTools
             if (!Game1.NPCGiftTastes.TryGetValue(npc.Name, out var tasteData))
                 return $"No gift taste data found for {npc.Name}.";
 
-            // Format: loved_items/loved_categories/liked_items/liked_categories/...
-            var parts = tasteData.Split('/');
+            // taste level: 8=love 6=like 4=neutral 2=dislike 0=hate
+            // NPC-specific data format: love_text/loved_ids/like_text/liked_ids/dislike_text/disliked_ids/hate_text/hated_ids[/neutral_text/neutral_ids]
+            // Universal_* entries follow the same alternating format.
+            // Universal preferences are applied first; NPC-specific entries override them.
+            var tasteMap = new Dictionary<string, int>();
+
+            static IEnumerable<string> UniversalIds(string key)
+            {
+                if (!Game1.NPCGiftTastes.TryGetValue(key, out var d)) return [];
+                var p = d.Split('/');
+                return (p.Length > 1 ? p[1] : p[0]).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            }
+
+            static IEnumerable<string> NpcIds(string[] p, int idx) =>
+                p.Length > idx ? p[idx].Split(' ', StringSplitOptions.RemoveEmptyEntries) : [];
+
+            foreach (var t in UniversalIds("Universal_Hate"))    tasteMap[t] = 0;
+            foreach (var t in UniversalIds("Universal_Dislike")) tasteMap[t] = 2;
+            foreach (var t in UniversalIds("Universal_Neutral")) tasteMap[t] = 4;
+            foreach (var t in UniversalIds("Universal_Like"))    tasteMap[t] = 6;
+            foreach (var t in UniversalIds("Universal_Love"))    tasteMap[t] = 8;
+
+            var npcParts = tasteData.Split('/');
+            foreach (var t in NpcIds(npcParts, 7)) tasteMap[t] = 0; // hated
+            foreach (var t in NpcIds(npcParts, 5)) tasteMap[t] = 2; // disliked
+            foreach (var t in NpcIds(npcParts, 9)) tasteMap[t] = 4; // neutral override
+            foreach (var t in NpcIds(npcParts, 3)) tasteMap[t] = 6; // liked
+            foreach (var t in NpcIds(npcParts, 1)) tasteMap[t] = 8; // loved
 
             var sb = new StringBuilder();
             sb.AppendLine($"Gift preferences for {npc.Name}:");
-            sb.AppendLine($"\nLoved:");
-            AppendGiftList(sb, parts.Length > 0 ? parts[0] : "", parts.Length > 1 ? parts[1] : "");
-            sb.AppendLine($"\nLiked:");
-            AppendGiftList(sb, parts.Length > 2 ? parts[2] : "", parts.Length > 3 ? parts[3] : "");
-            sb.AppendLine($"\nDisliked:");
-            AppendGiftList(sb, parts.Length > 4 ? parts[4] : "", parts.Length > 5 ? parts[5] : "");
-            sb.AppendLine($"\nHated:");
-            AppendGiftList(sb, parts.Length > 6 ? parts[6] : "", parts.Length > 7 ? parts[7] : "");
+
+            foreach (var (label, level) in new[] { ("Loved", 8), ("Liked", 6), ("Disliked", 2), ("Hated", 0) })
+            {
+                sb.AppendLine($"\n{label}:");
+                var entries = tasteMap.Where(kvp => kvp.Value == level).Select(kvp => kvp.Key).ToList();
+                if (entries.Count == 0) { sb.AppendLine("  (none)"); continue; }
+                foreach (var token in entries)
+                {
+                    if (int.TryParse(token, out var n) && n < 0)
+                    {
+                        sb.AppendLine($"  [all {CategoryName(n)}]");
+                    }
+                    else
+                    {
+                        var itemId = int.TryParse(token, out _) ? $"(O){token}" : token;
+                        var data = ItemRegistry.GetData(itemId);
+                        if (data != null)
+                        {
+                            sb.AppendLine($"  {data.DisplayName}");
+                        }
+                        else if (!int.TryParse(token, out _))
+                        {
+                            // Named category token (e.g. "category_trinket", "book_item")
+                            var raw = token.StartsWith("category_", StringComparison.OrdinalIgnoreCase)
+                                ? token.Substring("category_".Length) : token;
+                            var pretty = string.Concat(raw.Split('_')
+                                .Select(w => w.Length > 0 ? char.ToUpper(w[0]).ToString() + w.Substring(1) : w));
+                            sb.AppendLine($"  [all {pretty}]");
+                        }
+                        else
+                        {
+                            // Integer ID not found under (O); try resolving without a type prefix
+                            var fallback = ItemRegistry.GetData(token);
+                            sb.AppendLine($"  {(fallback != null ? fallback.DisplayName : ItemRegistry.GetDataOrErrorItem(itemId).DisplayName)}");
+                        }
+                    }
+                }
+            }
 
             return sb.ToString().TrimEnd();
         });
-    }
-
-    private static void AppendGiftList(StringBuilder sb, string itemIds, string categoryIds)
-    {
-        var items = itemIds.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .Select(id => ItemRegistry.GetDataOrErrorItem($"(O){id}").DisplayName)
-            .ToList();
-
-        var categories = categoryIds.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-            .Select(id => int.TryParse(id, out var n) ? CategoryName(n) : id)
-            .Where(s => s is not null)
-            .ToList();
-
-        if (items.Count == 0 && categories.Count == 0)
-        {
-            sb.AppendLine("  (none)");
-            return;
-        }
-        foreach (var item in items)
-            sb.AppendLine($"  {item}");
-        foreach (var cat in categories)
-            sb.AppendLine($"  [all {cat}]");
     }
 
     private static Task<string> GetAllFriendships(JsonObject args)
@@ -268,7 +300,7 @@ public static class NpcTools
             if (!Context.IsWorldReady)
                 return "No game is loaded.";
 
-            if (Game1.player.friendshipData.Count() == 0)
+            if (!Game1.player.friendshipData.Any())
                 return "No friendships yet.";
 
             var sb = new StringBuilder();
@@ -338,14 +370,14 @@ public static class NpcTools
 
     // ── Helpers ─────────────────────────────────────────────────────────────
 
-    private static string? CategoryName(int id) => id switch
+    private static string CategoryName(int id) => id switch
     {
-        -2  => "Gems",
-        -4  => "Fish",
-        -5  => "Eggs",
-        -6  => "Milk",
-        -7  => "Cooked Food",
-        -8  => "Crafted Items",
+        -2 => "Gems",
+        -4 => "Fish",
+        -5 => "Eggs",
+        -6 => "Milk",
+        -7 => "Cooked Food",
+        -8 => "Crafted Items",
         -12 => "Minerals",
         -14 => "Meat",
         -15 => "Metal Bars",
@@ -359,23 +391,23 @@ public static class NpcTools
         -27 => "Syrups",
         -28 => "Monster Loot",
         -74 => "Seeds",
-        -75 => "Bars",
+        -75 => "Ores",
         -79 => "Fruit",
         -80 => "Flowers",
         -81 => "Forage",
         -96 => "Rings",
         -98 => "Boots",
         -99 => "Weapons",
-        _   => $"Category {id}"
+        _ => $"Category {id}"
     };
 
     private static int SeasonIndex(string? season) => season?.ToLower() switch
     {
         "spring" => 0,
         "summer" => 1,
-        "fall"   => 2,
+        "fall" => 2,
         "winter" => 3,
-        _        => -1
+        _ => -1
     };
 
     // ── Schema builders ─────────────────────────────────────────────────────

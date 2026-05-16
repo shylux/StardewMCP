@@ -20,3 +20,4 @@ Thumbs.db
 # Local config (may contain personal paths)
 config.json
 .claude
+.idea

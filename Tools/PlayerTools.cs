@@ -54,13 +54,6 @@ public static class PlayerTools
         );
 
         registry.Add(
-            Tool("get_game_time",
-                "Get the current in-game date and time (season, day, year, time of day).",
-                Props()),
-            GetGameTime
-        );
-
-        registry.Add(
             Tool("remove_item_from_inventory",
                 "Remove an item from the player's inventory by name. Removes the specified quantity, or the entire stack if no quantity given.",
                 Props(
@@ -227,27 +220,6 @@ public static class PlayerTools
             }
 
             return $"No item matching '{search}' found in inventory.";
-        });
-    }
-
-    private static Task<string> GetGameTime(JsonObject args)
-    {
-        return ModEntry.OnGameThread(() =>
-        {
-            if (!Context.IsWorldReady)
-                return "No game is loaded.";
-
-            var date = Game1.Date;
-            var rawTime = Game1.timeOfDay;
-            var hour = rawTime / 100;
-            var minute = rawTime % 100;
-            var ampm = hour >= 12 ? "PM" : "AM";
-            var hour12 = hour > 12 ? hour - 12 : hour == 0 ? 12 : hour;
-
-            return $"Season: {date.Season}\n" +
-                   $"Day: {date.DayOfMonth}\n" +
-                   $"Year: {date.Year}\n" +
-                   $"Time: {hour12}:{minute:D2} {ampm}";
         });
     }
 
