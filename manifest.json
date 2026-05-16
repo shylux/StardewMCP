@@ -1,0 +1,9 @@
+{
+  "Name": "StardewMCP",
+  "Author": "shylux",
+  "Version": "1.0.0",
+  "Description": "MCP server — lets AI assistants interact with a running Stardew Valley game.",
+  "UniqueID": "shylux.StardewMCP",
+  "EntryDll": "StardewMCP.dll",
+  "MinimumApiVersion": "4.0.0"
+}
