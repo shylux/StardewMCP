@@ -2,6 +2,7 @@ using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Locations;
 using StardewValley.Objects;
+using StardewValley.TerrainFeatures;
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -26,10 +27,10 @@ public static class WorldTools
         );
 
         registry.Add(
-            Tool("find_item_in_chests",
-                "Search all chests on the farm (and inside the farmhouse) for an item by name. Returns which chest contains it and where that chest is.",
+            Tool("find_item",
+                "Search everywhere for an item by name: chests, storage furniture (dressers, cabinets), items placed on tables, dropped items on the ground in all locations, the item recovery service, and the lost & found box.",
                 Props(Str("item_name", "Partial or full item name to search for, e.g. 'Watering Can', 'Coal', 'Parsnip'"))),
-            FindItemInChests
+            FindItem
         );
 
         registry.Add(
@@ -52,9 +53,245 @@ public static class WorldTools
                 Props(Str("location_name", "Location name, e.g. FarmHouse, Farm, Town"))),
             GetLocationWarps
         );
+
+        registry.Add(
+            Tool("get_surroundings",
+                "Scan the player's current location for nearby entities: NPCs, items/machines, crops, trees, bushes, buildings, and exits. Returns distance and direction from the player.",
+                Props(Int("radius", "Tile radius to scan (default: 15)"))),
+            GetSurroundings
+        );
     }
 
     // ── Handlers ────────────────────────────────────────────────────────────
+
+    private static Task<string> GetSurroundings(JsonObject args)
+    {
+        var radius = args["radius"]?.GetValue<int>() ?? 15;
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady)
+                return "No game is loaded.";
+
+            var player = Game1.player;
+            var location = player.currentLocation;
+            var ox = player.TilePoint.X;
+            var oy = player.TilePoint.Y;
+
+            static double Dist(float ox, float oy, float tx, float ty)
+                => Math.Sqrt((tx - ox) * (tx - ox) + (ty - oy) * (ty - oy));
+
+            static string Dir(float ox, float oy, float tx, float ty)
+            {
+                var dx = tx - ox;
+                var dy = ty - oy;
+                if (dx == 0 && dy == 0) return "here";
+                var angle = Math.Atan2(dy, dx) * 180.0 / Math.PI;
+                return angle switch
+                {
+                    <= -157.5 or > 157.5 => "W",
+                    <= -112.5 => "NW",
+                    <= -67.5 => "N",
+                    <= -22.5 => "NE",
+                    <= 22.5 => "E",
+                    <= 67.5 => "SE",
+                    <= 112.5 => "S",
+                    _ => "SW"
+                };
+            }
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"Surroundings within {radius} tiles of player ({ox}, {oy}) in {location.Name}:\n");
+
+            // ── NPCs ────────────────────────────────────────────────────────
+            var npcs = location.characters
+                .Where(c => c is not null && !c.IsMonster)
+                .Select(c => (d: Dist(ox, oy, c.TilePoint.X, c.TilePoint.Y), text: $"{c.Name} ({Dir(ox, oy, c.TilePoint.X, c.TilePoint.Y)}, {Dist(ox, oy, c.TilePoint.X, c.TilePoint.Y):F1}t)"))
+                .Where(x => x.d <= radius)
+                .OrderBy(x => x.d)
+                .Select(x => x.text)
+                .ToList();
+            
+            if (npcs.Count > 0)
+            {
+                sb.AppendLine("NPCs:");
+                foreach (var n in npcs) sb.AppendLine($"  {n}");
+            }
+
+            // ── Objects / Machines ───────────────────────────────────────────
+            var objects = new List<(double d, string text)>();
+            foreach (var (tile, obj) in location.objects.Pairs)
+            {
+                var d = Dist(ox, oy, tile.X, tile.Y);
+                if (d > radius) continue;
+                string desc;
+                if (obj.bigCraftable.Value)
+                {
+                    if (obj.heldObject.Value is not null)
+                        desc = obj.readyForHarvest.Value
+                            ? $"{obj.DisplayName}: {obj.heldObject.Value.DisplayName} (ready)"
+                            : $"{obj.DisplayName}: processing {obj.heldObject.Value.DisplayName}";
+                    else
+                        desc = $"{obj.DisplayName} (idle)";
+                }
+                else
+                {
+                    desc = obj.DisplayName;
+                }
+                objects.Add((d, $"{desc} ({Dir(ox, oy, tile.X, tile.Y)}, {d:F1}t) at ({tile.X},{tile.Y})"));
+            }
+            // Dropped items (debris)
+            foreach (var debris in location.debris)
+            {
+                if (debris.item is null) continue;
+                if (debris.Chunks.Count == 0) continue;
+                var px = debris.Chunks[0].position.X / Game1.tileSize;
+                var py = debris.Chunks[0].position.Y / Game1.tileSize;
+                var d = Dist(ox, oy, px, py);
+                if (d > radius) continue;
+                var stackInfo = debris.item.Stack > 1 ? $" x{debris.item.Stack}" : "";
+                objects.Add((d, $"Dropped: {debris.item.DisplayName}{stackInfo} ({Dir(ox, oy, px, py)}, {d:F1}t)"));
+            }
+
+            if (objects.Count > 0)
+            {
+                sb.AppendLine("\nObjects/Machines:");
+                foreach (var (_, text) in objects.OrderBy(x => x.d))
+                    sb.AppendLine($"  {text}");
+            }
+
+            // ── Terrain Features ─────────────────────────────────────────────
+            var terrain = new List<(double d, string text)>();
+            foreach (var (tile, tf) in location.terrainFeatures.Pairs)
+            {
+                var d = Dist(ox, oy, tile.X, tile.Y);
+                if (d > radius) continue;
+                string? desc = null;
+                if (tf is HoeDirt dirt)
+                {
+                    if (dirt.crop is not null)
+                    {
+                        var cropData = dirt.crop.GetData();
+                        var name = cropData is not null
+                            ? ItemRegistry.GetDataOrErrorItem("(O)" + cropData.HarvestItemId).DisplayName
+                            : "Unknown Crop";
+                        var state = dirt.crop.fullyGrown.Value || dirt.crop.currentPhase.Value >= dirt.crop.phaseDays.Count - 1
+                            ? "ready"
+                            : $"{dirt.crop.phaseDays.Count - 1 - dirt.crop.currentPhase.Value} phases left";
+                        var watered = dirt.state.Value == HoeDirt.watered ? "watered" : "dry";
+                        desc = $"Crop: {name} ({state}, {watered})";
+                    }
+                    else
+                    {
+                        desc = "Tilled soil (empty)";
+                    }
+                }
+                else if (tf is Bush bush)
+                {
+                    var bushType = bush.size.Value switch
+                    {
+                        Bush.smallBush => "Small bush",
+                        Bush.mediumBush => "Medium bush",
+                        Bush.largeBush => "Large bush",
+                        Bush.walnutBush => "Walnut bush",
+                        _ => "Bush"
+                    };
+                    desc = bush.tileSheetOffset.Value == 1 ? $"{bushType} (has berries)" : bushType;
+                }
+                else if (tf is Tree tree)
+                {
+                    var stage = tree.growthStage.Value switch
+                    {
+                        0 => "seed",
+                        1 => "sprout",
+                        2 => "sapling",
+                        3 => "bush",
+                        4 => "small tree",
+                        _ => "full tree"
+                    };
+                    var tapped = tree.tapped.Value ? " (tapped)" : "";
+                    var hasSeed = tree.hasSeed.Value ? " (has seed)" : "";
+                    desc = $"Tree ({stage}{tapped}{hasSeed})";
+                }
+                else if (tf is FruitTree fruitTree)
+                {
+                    var fruitData = ItemRegistry.GetData("(O)" + fruitTree.treeId.Value);
+                    var fruitName = fruitData?.DisplayName ?? fruitTree.treeId.Value;
+                    var fruitCount = fruitTree.fruit.Count;
+                    desc = fruitCount > 0
+                        ? $"Fruit Tree: {fruitName} ({fruitCount} fruit ready)"
+                        : $"Fruit Tree: {fruitName} (no fruit)";
+                }
+                if (desc is not null)
+                    terrain.Add((d, $"{desc} ({Dir(ox, oy, tile.X, tile.Y)}, {d:F1}t) at ({tile.X},{tile.Y})"));
+            }
+
+            // Large terrain objects (resource clumps)
+            foreach (var clump in location.resourceClumps)
+            {
+                var tx = clump.Tile.X + clump.width.Value / 2;
+                var ty = clump.Tile.Y + clump.height.Value / 2;
+                var d = Dist(ox, oy, (int)tx, (int)ty);
+                if (d > radius) continue;
+                var name = clump.parentSheetIndex.Value switch
+                {
+                    600 => "Large Stump",
+                    602 => "Large Log",
+                    622 => "Large Rock (Meteorite)",
+                    672 => "Large Rock",
+                    _ => $"Resource Clump ({clump.parentSheetIndex.Value})"
+                };
+                terrain.Add((d, $"{name} ({Dir(ox, oy, (int)tx, (int)ty)}, {d:F1}t) at ({clump.Tile.X},{clump.Tile.Y})"));
+            }
+
+            if (terrain.Count > 0)
+            {
+                sb.AppendLine("\nTerrain:");
+                foreach (var (_, text) in terrain.OrderBy(x => x.d))
+                    sb.AppendLine($"  {text}");
+            }
+
+            // ── Buildings ────────────────────────────────────────────────────
+            if (location is Farm farm)
+            {
+                var buildings = farm.buildings
+                    .Select(b => {
+                        var tx = b.tileX.Value + b.tilesWide.Value / 2;
+                        var ty = b.tileY.Value + b.tilesHigh.Value / 2;
+                        var d = Dist(ox, oy, tx, ty);
+                        return (d, text: $"{b.buildingType.Value} ({Dir(ox, oy, tx, ty)}, {d:F1}t) at ({b.tileX.Value},{b.tileY.Value})");
+                    })
+                    .Where(x => x.d <= radius)
+                    .OrderBy(x => x.d)
+                    .ToList();
+
+                if (buildings.Count > 0)
+                {
+                    sb.AppendLine("\nBuildings:");
+                    foreach (var (_, text) in buildings)
+                        sb.AppendLine($"  {text}");
+                }
+            }
+
+            // ── Exits / Warps ────────────────────────────────────────────────
+            var exits = location.warps
+                .Select(w => (d: Dist(ox, oy, w.X, w.Y), text: $"Exit → {w.TargetName} ({Dir(ox, oy, w.X, w.Y)}, {Dist(ox, oy, w.X, w.Y):F1}t) at ({w.X},{w.Y})"))
+                .Where(x => x.d <= radius)
+                .OrderBy(x => x.d)
+                .Select(x => x.text)
+                .ToList();
+
+            if (exits.Count > 0)
+            {
+                sb.AppendLine("\nExits:");
+                foreach (var e in exits) sb.AppendLine($"  {e}");
+            }
+
+            if (sb.ToString().Trim().Split('\n').Length <= 1)
+                sb.AppendLine("Nothing notable nearby.");
+
+            return sb.ToString().TrimEnd();
+        });
+    }
 
     private static Task<string> GetWeather(JsonObject args)
     {
@@ -109,7 +346,7 @@ public static class WorldTools
         });
     }
 
-    private static Task<string> FindItemInChests(JsonObject args)
+    private static Task<string> FindItem(JsonObject args)
     {
         var search = args["item_name"]?.GetValue<string>() ?? "";
         return ModEntry.OnGameThread(() =>
@@ -119,29 +356,74 @@ public static class WorldTools
 
             var results = new List<string>();
 
+            bool Matches(Item item) =>
+                item.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                item.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase);
+
+            void Add(Item item, string where)
+            {
+                var stack = item.Stack > 1 ? $" x{item.Stack}" : "";
+                results.Add($"{item.DisplayName}{stack} — {where}");
+            }
+
             foreach (var location in Game1.locations)
             {
+                // Chests
                 foreach (var (tile, obj) in location.objects.Pairs)
                 {
-                    if (obj is not Chest chest)
-                        continue;
-
+                    if (obj is not Chest chest) continue;
                     foreach (var item in chest.Items)
-                    {
-                        if (item is null)
-                            continue;
+                        if (item is not null && Matches(item))
+                            Add(item, $"chest at {location.Name} ({(int)tile.X}, {(int)tile.Y})");
+                }
 
-                        if (item.Name.Contains(search, StringComparison.OrdinalIgnoreCase))
-                        {
-                            var stackInfo = item.Stack > 1 ? $" x{item.Stack}" : "";
-                            results.Add($"{item.Name}{stackInfo} — chest at {location.Name} ({tile.X}, {tile.Y})");
-                        }
+                // Furniture: storage (dressers/cabinets) and items placed on tables
+                foreach (var furniture in location.furniture)
+                {
+                    var fpos = $"{location.Name} ({(int)furniture.TileLocation.X}, {(int)furniture.TileLocation.Y})";
+                    if (furniture is StorageFurniture storage)
+                    {
+                        foreach (var item in storage.heldItems)
+                            if (item is not null && Matches(item))
+                                Add(item, $"inside {furniture.DisplayName} at {fpos}");
                     }
+                    else if (furniture.heldObject.Value is { } held && Matches(held))
+                    {
+                        Add(held, $"on {furniture.DisplayName} at {fpos}");
+                    }
+                }
+
+                // Dropped items (debris) on the ground
+                foreach (var debris in location.debris)
+                {
+                    if (debris.item is null || !Matches(debris.item)) continue;
+                    if (debris.Chunks.Count == 0) continue;
+                    var tx = (int)(debris.Chunks[0].position.X / Game1.tileSize);
+                    var ty = (int)(debris.Chunks[0].position.Y / Game1.tileSize);
+                    Add(debris.item, $"dropped on ground in {location.Name} ({tx}, {ty})");
+                }
+            }
+
+            // Item recovery service (items lost when passing out in dangerous areas)
+            foreach (var item in Game1.player.itemsLostLastDeath)
+                if (item is not null && Matches(item))
+                    Add(item, "item recovery service (Marlon, Adventurer's Guild)");
+
+            // Lost & found box (Mayor Lewis's house — chest backed by a global inventory)
+            var manorHouse = Game1.getLocationFromName("ManorHouse");
+            if (manorHouse is not null)
+            {
+                foreach (var (_, obj) in manorHouse.objects.Pairs)
+                {
+                    if (obj is not Chest lostChest || lostChest.GlobalInventoryId is null) continue;
+                    foreach (var item in Game1.player.team.GetOrCreateGlobalInventory(lostChest.GlobalInventoryId))
+                        if (item is not null && Matches(item))
+                            Add(item, "lost and found box (Mayor Lewis's house)");
                 }
             }
 
             if (results.Count == 0)
-                return $"No item matching '{search}' found in any chest.";
+                return $"No item matching '{search}' found.";
 
             return string.Join("\n", results);
         });
@@ -290,4 +572,7 @@ public static class WorldTools
 
     private static (string, JsonObject) Str(string name, string description) =>
         (name, new JsonObject { ["type"] = "string", ["description"] = description });
+
+    private static (string, JsonObject) Int(string name, string description) =>
+        (name, new JsonObject { ["type"] = "integer", ["description"] = description });
 }
