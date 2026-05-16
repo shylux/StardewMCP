@@ -79,6 +79,27 @@ public static class PlayerTools
                 )),
             ShowSpeechBubble
         );
+
+        registry.Add(
+            Tool("set_health",
+                "Set the player's current health. Clamped to 1–max health. Use 99999 to fully heal.",
+                Props(Int("health", "Health value to set"))),
+            SetHealth
+        );
+
+        registry.Add(
+            Tool("add_money",
+                "Add or remove money from the player. Use a negative value to remove gold.",
+                Props(Int("amount", "Amount of gold to add (negative to remove)"))),
+            AddMoney
+        );
+
+        registry.Add(
+            Tool("set_speed",
+                "Set the player's extra movement speed. Base speed is 5; positive values make the player faster, negative values slower. Use 0 to reset.",
+                Props(Int("speed", "Extra speed to add on top of base speed (e.g. 2 for noticeably faster, 5 for very fast)"))),
+            SetSpeed
+        );
     }
 
     // ── Handlers ────────────────────────────────────────────────────────────
@@ -308,6 +329,40 @@ public static class PlayerTools
 
             Game1.player.doEmote(id);
             return $"Emote performed (ID {id}).";
+        });
+    }
+
+    private static Task<string> SetHealth(JsonObject args)
+    {
+        var health = args["health"]?.GetValue<int>() ?? 0;
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            var p = Game1.player;
+            p.health = Math.Clamp(health, 1, p.maxHealth);
+            return $"Health set to {p.health}/{p.maxHealth}.";
+        });
+    }
+
+    private static Task<string> AddMoney(JsonObject args)
+    {
+        var amount = args["amount"]?.GetValue<int>() ?? 0;
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            Game1.player.Money = Math.Max(0, Game1.player.Money + amount);
+            return $"Money {(amount >= 0 ? "+" : "")}{amount}g. Total: {Game1.player.Money}g.";
+        });
+    }
+
+    private static Task<string> SetSpeed(JsonObject args)
+    {
+        var speed = args["speed"]?.GetValue<int>() ?? 0;
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            DebugCommands.TryHandle(new[] { "Speed", speed.ToString() });
+            return $"Speed set to +{speed}.";
         });
     }
 
