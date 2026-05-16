@@ -74,6 +74,24 @@ public static class WorldTools
                 Props(Str("weather", "Weather type: sunny, rain, thunderstorm, snow, or windy"))),
             SetWeather
         );
+
+        registry.Add(
+            Tool("set_time",
+                "Set the current in-game time. Accepts formats like '6am', '2:30pm', '14:30', or a raw game time integer like 600 or 1430.",
+                Props(Str("time", "Time to set, e.g. '8am', '2:30pm', '1800'"))),
+            SetTime
+        );
+
+        registry.Add(
+            Tool("set_date",
+                "Set the current in-game date. All parameters are optional — only the ones provided will change.",
+                Props(
+                    Int("day", "Day of month (1–28)"),
+                    Str("season", "Season: spring, summer, fall, or winter"),
+                    Int("year", "Year number (1 or higher)")
+                )),
+            SetDate
+        );
     }
 
     // ── Handlers ────────────────────────────────────────────────────────────
@@ -379,6 +397,105 @@ public static class WorldTools
                     return $"Unknown weather '{weather}'. Valid types: sunny, rain, thunderstorm, snow, windy.";
             }
         });
+    }
+
+    private static Task<string> SetDate(JsonObject args)
+    {
+        var day = args["day"]?.GetValue<int>();
+        var season = args["season"]?.GetValue<string>()?.ToLowerInvariant();
+        var year = args["year"]?.GetValue<int>();
+
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady)
+                return "No game is loaded.";
+
+            if (day is null && season is null && year is null)
+                return "Provide at least one of: day, season, year.";
+
+            if (day is not null)
+            {
+                if (day < 1 || day > 28)
+                    return "Day must be between 1 and 28.";
+                DebugCommands.TryHandle(new[] { "Day", day.Value.ToString() });
+            }
+
+            if (season is not null)
+            {
+                if (season is not ("spring" or "summer" or "fall" or "winter"))
+                    return $"Unknown season '{season}'. Use: spring, summer, fall, winter.";
+                DebugCommands.TryHandle(new[] { "Season", season });
+            }
+
+            if (year is not null)
+            {
+                if (year < 1)
+                    return "Year must be 1 or higher.";
+                DebugCommands.TryHandle(new[] { "Year", year.Value.ToString() });
+            }
+
+            var d = Game1.Date;
+            return $"Date set to {d.Season} {d.DayOfMonth}, Year {d.Year}.";
+        });
+    }
+
+    private static Task<string> SetTime(JsonObject args)
+    {
+        var input = (args["time"]?.GetValue<string>() ?? "").Trim();
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady)
+                return "No game is loaded.";
+
+            if (!TryParseGameTime(input, out int gameTime))
+                return $"Could not parse time '{input}'. Use formats like '8am', '2:30pm', or '1430'.";
+
+            DebugCommands.TryHandle(new[] { "Time", gameTime.ToString() });
+            var h = gameTime / 100;
+            var m = gameTime % 100;
+            var ampm = h >= 12 ? "PM" : "AM";
+            var h12 = h > 12 ? h - 12 : h == 0 ? 12 : h;
+            return $"Time set to {h12}:{m:D2} {ampm}.";
+        });
+    }
+
+    private static bool TryParseGameTime(string input, out int gameTime)
+    {
+        gameTime = 0;
+        if (string.IsNullOrWhiteSpace(input)) return false;
+
+        input = input.ToLowerInvariant().Replace(" ", "");
+
+        bool isPm = input.EndsWith("pm");
+        bool isAm = input.EndsWith("am");
+        if (isPm || isAm)
+            input = input[..^2];
+
+        int hours, minutes = 0;
+        if (input.Contains(':'))
+        {
+            var parts = input.Split(':');
+            if (!int.TryParse(parts[0], out hours) || !int.TryParse(parts[1], out minutes))
+                return false;
+        }
+        else if (!int.TryParse(input, out hours))
+        {
+            return false;
+        }
+        else if (hours >= 100)
+        {
+            // raw HHMM format e.g. 1430
+            minutes = hours % 100;
+            hours = hours / 100;
+            gameTime = hours * 100 + minutes;
+            return true;
+        }
+
+        if (isPm && hours != 12) hours += 12;
+        if (isAm && hours == 12) hours = 0;
+
+        gameTime = hours * 100 + minutes;
+        return true;
     }
 
     private static Task<string> GetGameTime(JsonObject args)
