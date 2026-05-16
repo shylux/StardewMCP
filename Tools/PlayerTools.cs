@@ -64,6 +64,13 @@ public static class PlayerTools
                 )),
             RemoveItemFromInventory
         );
+
+        registry.Add(
+            Tool("player_emote",
+                "Make the player perform an emote bubble. Available names: question, angry, exclamation, heart, sleep, sad, happy, x, pause, videogame, musicnote, blush. You can also pass a raw integer ID.",
+                Props(Str("emote", "Emote name or raw integer ID, e.g. 'heart', 'sad', '32'"))),
+            PlayerEmote
+        );
     }
 
     // ── Handlers ────────────────────────────────────────────────────────────
@@ -222,6 +229,51 @@ public static class PlayerTools
             }
 
             return $"No item matching '{search}' found in inventory.";
+        });
+    }
+
+    private static readonly Dictionary<string, int> EmoteIds = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["question"]    = 8,
+        ["?"]           = 8,
+        ["angry"]       = 12,
+        ["exclamation"] = 16,
+        ["!"]           = 16,
+        ["heart"]       = 20,
+        ["love"]        = 20,
+        ["sleep"]       = 24,
+        ["zzz"]         = 24,
+        ["sad"]         = 28,
+        ["happy"]       = 32,
+        ["smile"]       = 32,
+        ["x"]           = 36,
+        ["no"]          = 36,
+        ["pause"]       = 40,
+        ["..."]         = 40,
+        ["videogame"]   = 52,
+        ["game"]        = 52,
+        ["musicnote"]   = 56,
+        ["music"]       = 56,
+        ["blush"]       = 60,
+    };
+
+    private static Task<string> PlayerEmote(JsonObject args)
+    {
+        var input = args["emote"]?.GetValue<string>() ?? "";
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady)
+                return "No game is loaded.";
+
+            int id;
+            if (!int.TryParse(input, out id) && !EmoteIds.TryGetValue(input, out id))
+            {
+                var names = string.Join(", ", EmoteIds.Keys.Where(k => k.Length > 1 && k != "..."));
+                return $"Unknown emote '{input}'. Valid names: {names}";
+            }
+
+            Game1.player.doEmote(id);
+            return $"Emote performed (ID {id}).";
         });
     }
 
