@@ -67,6 +67,13 @@ public static class WorldTools
             GetSurroundings,
             observeOnly: true
         );
+
+        registry.Add(
+            Tool("set_weather",
+                "Change the current weather immediately. Valid types: sunny, rain, thunderstorm, snow, windy.",
+                Props(Str("weather", "Weather type: sunny, rain, thunderstorm, snow, or windy"))),
+            SetWeather
+        );
     }
 
     // ── Handlers ────────────────────────────────────────────────────────────
@@ -329,6 +336,48 @@ public static class WorldTools
             };
 
             return $"Today: {today}\nTomorrow: {tomorrow}";
+        });
+    }
+
+    private static Task<string> SetWeather(JsonObject args)
+    {
+        var weather = (args["weather"]?.GetValue<string>() ?? "").ToLowerInvariant();
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady)
+                return "No game is loaded.";
+
+            Game1.isRaining = false;
+            Game1.isSnowing = false;
+            Game1.isLightning = false;
+            Game1.isDebrisWeather = false;
+
+            switch (weather)
+            {
+                case "sunny":
+                case "sun":
+                    return "Weather changed to sunny.";
+                case "rain":
+                case "rainy":
+                    Game1.isRaining = true;
+                    return "Weather changed to rainy.";
+                case "thunderstorm":
+                case "storm":
+                case "lightning":
+                    Game1.isRaining = true;
+                    Game1.isLightning = true;
+                    return "Weather changed to thunderstorm.";
+                case "snow":
+                case "snowing":
+                    Game1.isSnowing = true;
+                    return "Weather changed to snowy.";
+                case "windy":
+                case "debris":
+                    Game1.isDebrisWeather = true;
+                    return "Weather changed to windy.";
+                default:
+                    return $"Unknown weather '{weather}'. Valid types: sunny, rain, thunderstorm, snow, windy.";
+            }
         });
     }
 
