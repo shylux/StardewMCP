@@ -58,6 +58,16 @@ public static class NpcTools
         );
 
         registry.Add(
+            Tool("set_npc_relationship",
+                "Set friendship hearts with an NPC. One heart = 250 points. Max is 10 for regular NPCs, 14 for a spouse. Creates the friendship entry if not yet met.",
+                Props(
+                    Str("npc_name", "NPC name, e.g. Abigail, Harvey, Penny"),
+                    Int("hearts", "Number of hearts to set (0–14)")
+                )),
+            SetNpcRelationship
+        );
+
+        registry.Add(
             Tool("get_spouse_info",
                 "Get detailed information about your spouse: friendship, location, daily status, and Stardrop status. Returns an error if not married.",
                 Props()),
@@ -329,6 +339,34 @@ public static class NpcTools
             }
 
             return sb.ToString().TrimEnd();
+        });
+    }
+
+    private static Task<string> SetNpcRelationship(JsonObject args)
+    {
+        var name = args["npc_name"]?.GetValue<string>() ?? "";
+        var hearts = args["hearts"]?.GetValue<int>() ?? 0;
+
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady)
+                return "No game is loaded.";
+
+            var npc = Game1.getCharacterFromName(name);
+            if (npc is null)
+                return $"NPC '{name}' not found.";
+
+            hearts = Math.Clamp(hearts, 0, 14);
+            var points = hearts * 250;
+
+            if (!Game1.player.friendshipData.TryGetValue(npc.Name, out var friendship))
+            {
+                friendship = new Friendship();
+                Game1.player.friendshipData.Add(npc.Name, friendship);
+            }
+
+            friendship.Points = points;
+            return $"{npc.Name} friendship set to {hearts} hearts ({points} pts).";
         });
     }
 
