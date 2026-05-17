@@ -45,6 +45,15 @@ public static class WorldTools
         );
 
         registry.Add(
+            Tool("list_registry_items",
+                "List items from the game's item registry. Without a type, returns all registered types and their item counts. " +
+                "With a type identifier (e.g. '(O)', '(W)', '(BC)', '(B)', '(R)', '(H)', '(F)', '(T)', '(TR)'), lists all items of that type.",
+                Props(Str("type", "Item type identifier, e.g. '(W)' for weapons, '(O)' for objects. Omit to list all types."))),
+            ListRegistryItems,
+            observeOnly: true
+        );
+
+        registry.Add(
             Tool("get_location_names",
                 "List all valid location names that can be used with teleport_player.",
                 Props()),
@@ -150,11 +159,27 @@ public static class WorldTools
                 .OrderBy(x => x.d)
                 .Select(x => x.text)
                 .ToList();
-            
+
             if (npcs.Count > 0)
             {
                 sb.AppendLine("NPCs:");
                 foreach (var n in npcs) sb.AppendLine($"  {n}");
+            }
+
+            // ── Monsters ─────────────────────────────────────────────────────
+            var monsters = location.characters
+                .Where(c => c is not null && c.IsMonster)
+                .Cast<StardewValley.Monsters.Monster>()
+                .Select(m => (d: Dist(ox, oy, m.TilePoint.X, m.TilePoint.Y), text: $"{m.Name} ({Dir(ox, oy, m.TilePoint.X, m.TilePoint.Y)}, {Dist(ox, oy, m.TilePoint.X, m.TilePoint.Y):F1}t) HP:{m.Health}/{m.MaxHealth}"))
+                .Where(x => x.d <= radius)
+                .OrderBy(x => x.d)
+                .Select(x => x.text)
+                .ToList();
+
+            if (monsters.Count > 0)
+            {
+                sb.AppendLine("\nMonsters:");
+                foreach (var m in monsters) sb.AppendLine($"  {m}");
             }
 
             // ── Objects / Machines ───────────────────────────────────────────
@@ -380,7 +405,32 @@ public static class WorldTools
                 _ => $"Unknown ({Game1.weatherForTomorrow})"
             };
 
-            return $"Today: {today}\nTomorrow: {tomorrow}";
+            var result = $"Valley - Today: {today}\nValley - Tomorrow: {tomorrow}";
+
+            var islandWeather = Game1.getLocationFromName("IslandSouth")?.GetWeather();
+            if (islandWeather is not null)
+            {
+                string islandToday;
+                if (islandWeather.isLightning.Value) islandToday = "Thunderstorm";
+                else if (islandWeather.isRaining.Value) islandToday = "Rainy";
+                else if (islandWeather.isSnowing.Value) islandToday = "Snowing";
+                else if (islandWeather.isDebrisWeather.Value) islandToday = "Windy";
+                else islandToday = "Sunny";
+
+                var islandTomorrow = islandWeather.weatherForTomorrow.Value switch
+                {
+                    Game1.weather_sunny => "Sunny",
+                    Game1.weather_rain => "Rainy",
+                    Game1.weather_debris => "Windy",
+                    Game1.weather_lightning => "Thunderstorm",
+                    Game1.weather_snow => "Snowing",
+                    _ => $"Unknown ({islandWeather.weatherForTomorrow.Value})"
+                };
+
+                result += $"\nGinger Island - Today: {islandToday}\nGinger Island - Tomorrow: {islandTomorrow}";
+            }
+
+            return result;
         });
     }
 
@@ -734,6 +784,39 @@ public static class WorldTools
             }
 
             return sb.ToString().TrimEnd();
+        });
+    }
+
+    private static Task<string> ListRegistryItems(JsonObject args)
+    {
+        var type = args["type"]?.GetValue<string>()?.Trim();
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady)
+                return "No game is loaded.";
+
+            if (string.IsNullOrEmpty(type))
+            {
+                var lines = ItemRegistry.ItemTypes
+                    .Select(t => $"{t.Identifier} — {t.GetAllIds().Count()} items")
+                    .ToList();
+                return "Registered item types:\n" + string.Join("\n", lines);
+            }
+
+            var typeDef = ItemRegistry.GetTypeDefinition(type);
+            if (typeDef is null)
+                return $"Unknown type '{type}'. Use list_registry_items without a type to see valid identifiers.";
+
+            var items = typeDef.GetAllIds()
+                .Select(id => ItemRegistry.GetData(typeDef.Identifier + id))
+                .Where(d => d is not null)
+                .Select(d => $"{d!.DisplayName} ({d.InternalName})")
+                .OrderBy(s => s)
+                .ToList();
+
+            return items.Count == 0
+                ? $"No items found for type '{type}'."
+                : $"{type} items ({items.Count}):\n" + string.Join("\n", items);
         });
     }
 

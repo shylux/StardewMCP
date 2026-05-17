@@ -1,5 +1,7 @@
 using StardewModdingAPI;
 using StardewValley;
+using StardewValley.Objects;
+using StardewValley.Objects.Trinkets;
 using System.Text.Json.Nodes;
 
 namespace StardewMCP.Tools;
@@ -45,7 +47,7 @@ public static class PlayerTools
 
         registry.Add(
             Tool("add_item_to_inventory",
-                "Add an item to the player's inventory by name. Searches regular items and craftables (e.g. Chest, Furnace).",
+                "Add an item to the player's inventory by name. Searches all item types registered in the game.",
                 Props(
                     Str("item_name", "Partial or full item name, e.g. 'Chest', 'Parsnip Seeds', 'Coal'"),
                     Int("quantity", "How many to add (default: 1)")
@@ -72,13 +74,24 @@ public static class PlayerTools
 
         registry.Add(
             Tool("show_speech_bubble",
-                "Show a speech bubble with text above a named NPC.",
+                "Show a speech bubble with text above a named NPC or monster.",
                 Props(
                     Str("text", "The text to display in the bubble"),
-                    Str("target", "The NPC name to show the bubble above, e.g. 'Abigail', 'Haley'"),
+                    Str("target", "The NPC or monster name, e.g. 'Abigail', 'Bat', 'Skeleton'"),
                     Int("duration", "How long to show the bubble in milliseconds (default: 3000)")
                 )),
             ShowSpeechBubble
+        );
+
+        registry.Add(
+            Tool("equip_item",
+                "Equip an item directly to its slot. Supports hats, boots, rings, shirts, pants, and trinkets. " +
+                "For rings, use slot 'left' or 'right' (default: left).",
+                Props(
+                    Str("item_name", "Item name to equip, e.g. 'Witch Hat', 'Infinity Boots', 'Iridium Band'"),
+                    Str("slot", "Ring slot: 'left' or 'right' (only relevant for rings)")
+                )),
+            EquipItem
         );
 
         registry.Add(
@@ -216,26 +229,19 @@ public static class PlayerTools
             if (!Context.IsWorldReady)
                 return "No game is loaded.";
 
-            // Search big craftables first (Chest, Furnace, etc.)
-            var bcMatch = Game1.bigCraftableData
-                .FirstOrDefault(kvp => kvp.Value.Name.Contains(search, StringComparison.OrdinalIgnoreCase));
-
-            if (bcMatch.Key != null)
+            foreach (var typeDef in ItemRegistry.ItemTypes)
             {
-                var item = ItemRegistry.Create($"(BC){bcMatch.Key}", quantity);
-                Game1.player.addItemByMenuIfNecessary(item);
-                return $"Added {bcMatch.Value.Name} to inventory.";
-            }
-
-            // Search regular objects
-            var objMatch = Game1.objectData
-                .FirstOrDefault(kvp => kvp.Value.Name.Contains(search, StringComparison.OrdinalIgnoreCase));
-
-            if (objMatch.Key != null)
-            {
-                var item = ItemRegistry.Create($"(O){objMatch.Key}", quantity);
-                Game1.player.addItemByMenuIfNecessary(item);
-                return $"Added {quantity}x {objMatch.Value.Name} to inventory.";
+                foreach (var id in typeDef.GetAllIds())
+                {
+                    var qualifiedId = typeDef.Identifier + id;
+                    var data = ItemRegistry.GetData(qualifiedId);
+                    if (data is null) continue;
+                    if (!data.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase) &&
+                        !data.InternalName.Contains(search, StringComparison.OrdinalIgnoreCase)) continue;
+                    var item = ItemRegistry.Create(qualifiedId, quantity);
+                    Game1.player.addItemByMenuIfNecessary(item);
+                    return $"Added {data.DisplayName} to inventory.";
+                }
             }
 
             return $"No item matching '{search}' found.";
@@ -292,11 +298,14 @@ public static class PlayerTools
                 return "Text cannot be empty.";
 
             if (string.IsNullOrWhiteSpace(target))
-                return "target is required (an NPC name like 'Abigail').";
+                return "target is required (an NPC or monster name like 'Abigail' or 'Bat').";
 
             var npc = Game1.getCharacterFromName(target);
+            npc ??= Game1.player.currentLocation.characters
+                .FirstOrDefault(c => c.Name.Contains(target, StringComparison.OrdinalIgnoreCase));
+
             if (npc is null)
-                return $"NPC '{target}' not found.";
+                return $"'{target}' not found.";
 
             npc.showTextAboveHead(text, null, NPC.textStyle_none, duration);
             return $"Speech bubble shown above {npc.Name}.";
@@ -345,6 +354,71 @@ public static class PlayerTools
 
             Game1.player.doEmote(id);
             return $"Emote performed (ID {id}).";
+        });
+    }
+
+    private static Task<string> EquipItem(JsonObject args)
+    {
+        var search = args["item_name"]?.GetValue<string>() ?? "";
+        var slot = (args["slot"]?.GetValue<string>() ?? "left").ToLowerInvariant();
+
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady)
+                return "No game is loaded.";
+
+            foreach (var typeDef in ItemRegistry.ItemTypes)
+            {
+                foreach (var id in typeDef.GetAllIds())
+                {
+                    var qualifiedId = typeDef.Identifier + id;
+                    var data = ItemRegistry.GetData(qualifiedId);
+                    if (data is null) continue;
+                    if (!data.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase) &&
+                        !data.InternalName.Contains(search, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    var item = ItemRegistry.Create(qualifiedId);
+                    var p = Game1.player;
+
+                    if (item is Hat hat)
+                    {
+                        p.hat.Value = hat;
+                        return $"Equipped hat: {data.DisplayName}.";
+                    }
+                    if (item is Boots boots)
+                    {
+                        p.boots.Value = boots;
+                        return $"Equipped boots: {data.DisplayName}.";
+                    }
+                    if (item is Ring ring)
+                    {
+                        if (slot == "right")
+                            p.rightRing.Value = ring;
+                        else
+                            p.leftRing.Value = ring;
+                        return $"Equipped ring to {slot} slot: {data.DisplayName}.";
+                    }
+                    if (item is Clothing clothing)
+                    {
+                        if (clothing.clothesType.Value == Clothing.ClothesType.Shirt)
+                        {
+                            p.shirtItem.Value = clothing;
+                            return $"Equipped shirt: {data.DisplayName}.";
+                        }
+                        p.pantsItem.Value = clothing;
+                        return $"Equipped pants: {data.DisplayName}.";
+                    }
+                    if (item is Trinket trinket)
+                    {
+                        p.trinketItem.Value = trinket;
+                        return $"Equipped trinket: {data.DisplayName}.";
+                    }
+
+                    return $"'{data.DisplayName}' ({typeDef.Identifier}) cannot be equipped.";
+                }
+            }
+
+            return $"No item matching '{search}' found.";
         });
     }
 
