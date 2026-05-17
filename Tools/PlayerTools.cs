@@ -26,11 +26,12 @@ public static class PlayerTools
 
         registry.Add(
             Tool("teleport_player",
-                "Warp the player to a named location. Use get_location_names to see valid locations.",
+                "Warp the player to a named location. Use get_location_names to see valid locations. " +
+                "When specifying explicit coordinates, use get_location_warps first and avoid those exit-trigger tiles — stepping on one immediately warps the player back out.",
                 Props(
                     Str("location", "Target location name, e.g. Farm, Town, Beach, Mountain, Mine"),
-                    Int("x", "Tile X coordinate (optional, uses location default if omitted)"),
-                    Int("y", "Tile Y coordinate (optional, uses location default if omitted)")
+                    Int("x", "Tile X coordinate (optional, uses a safe default if omitted)"),
+                    Int("y", "Tile Y coordinate (optional, uses a safe default if omitted)")
                 )),
             TeleportPlayer
         );
@@ -165,12 +166,27 @@ public static class PlayerTools
             }
             else
             {
-                // Use the location's default warp point
                 var warp = location.warps.FirstOrDefault();
                 if (warp is not null)
-                    Game1.warpFarmer(locationName, warp.X, warp.Y, false);
+                {
+                    // Step 2 tiles inward from whichever map edge the warp is closest to
+                    var layer = location.map.Layers[0];
+                    int mapW = layer.LayerWidth;
+                    int mapH = layer.LayerHeight;
+                    int wx = warp.X, wy = warp.Y;
+                    int dLeft = wx, dRight = mapW - 1 - wx, dTop = wy, dBottom = mapH - 1 - wy;
+                    int minDist = Math.Min(Math.Min(dLeft, dRight), Math.Min(dTop, dBottom));
+                    int ax = wx, ay = wy;
+                    if (minDist == dBottom) ay -= 2;
+                    else if (minDist == dTop) ay += 2;
+                    else if (minDist == dLeft) ax += 2;
+                    else ax -= 2;
+                    Game1.warpFarmer(locationName, ax, ay, false);
+                }
                 else
+                {
                     Game1.warpFarmer(locationName, 10, 10, false);
+                }
 
                 return $"Warped to {locationName}.";
             }

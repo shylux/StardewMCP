@@ -62,7 +62,7 @@ public static class WorldTools
 
         registry.Add(
             Tool("get_location_warps",
-                "List all warp/exit points in a location: their tile position and where they lead.",
+                "List all exit-trigger tiles in a location and where they lead. Avoid these tile positions when choosing teleport coordinates — stepping on them warps the player out of the location.",
                 Props(Str("location_name", "Location name, e.g. FarmHouse, Farm, Town"))),
             GetLocationWarps,
             observeOnly: true
