@@ -27,6 +27,7 @@ public class ToolRegistry
         foreach (var (def, _, observeOnly) in _tools)
         {
             if (OnlyObserve && !observeOnly) continue;
+            // JsonArray takes ownership of nodes, so deep-clone each definition to keep the original intact
             arr.Add(JsonNode.Parse(def.ToJsonString())!);
         }
         return arr;
@@ -43,4 +44,26 @@ public class ToolRegistry
         }
         return $"Unknown tool: '{name}'. Available: {string.Join(", ", _tools.Select(t => t.Definition["name"]?.GetValue<string>()))}";
     }
+
+    // ── Shared schema builders used by all tool files ────────────────────────
+
+    internal static JsonObject Tool(string name, string description, JsonObject inputSchema) =>
+        new() { ["name"] = name, ["description"] = description, ["inputSchema"] = inputSchema };
+
+    internal static JsonObject Props(params (string Name, JsonObject Schema)[] props)
+    {
+        var properties = new JsonObject();
+        foreach (var (n, s) in props)
+            properties[n] = s;
+        return new JsonObject { ["type"] = "object", ["properties"] = properties };
+    }
+
+    internal static (string, JsonObject) Str(string name, string description) =>
+        (name, new JsonObject { ["type"] = "string", ["description"] = description });
+
+    internal static (string, JsonObject) Int(string name, string description) =>
+        (name, new JsonObject { ["type"] = "integer", ["description"] = description });
+
+    internal static (string, JsonObject) Bool(string name, string description) =>
+        (name, new JsonObject { ["type"] = "boolean", ["description"] = description });
 }

@@ -5,6 +5,7 @@ using StardewValley.Locations;
 using StardewValley.TerrainFeatures;
 using System.Text;
 using System.Text.Json.Nodes;
+using static StardewMCP.Tools.ToolRegistry;
 
 namespace StardewMCP.Tools;
 
@@ -52,10 +53,12 @@ public static class FarmTools
                 }
                 else
                 {
+                    // sum days spent in completed phases plus days into the current phase
                     int daysGrown = crop.dayOfCurrentPhase.Value;
                     for (int i = 0; i < crop.currentPhase.Value; i++)
                         daysGrown += crop.phaseDays[i];
 
+                    // last entry in phaseDays is the repeat-harvest interval, not a growth phase
                     int totalDays = 0;
                     for (int i = 0; i < crop.phaseDays.Count - 1; i++)
                         totalDays += crop.phaseDays[i];
@@ -179,21 +182,4 @@ public static class FarmTools
         });
     }
 
-    // ── Schema builders ──────────────────────────────────────────────────────
-
-    private static JsonObject Tool(string name, string description, JsonObject inputSchema) =>
-        new()
-        {
-            ["name"] = name,
-            ["description"] = description,
-            ["inputSchema"] = inputSchema
-        };
-
-    private static JsonObject Props(params (string Name, JsonObject Schema)[] props)
-    {
-        var properties = new JsonObject();
-        foreach (var (n, s) in props)
-            properties[n] = s;
-        return new JsonObject { ["type"] = "object", ["properties"] = properties };
-    }
 }

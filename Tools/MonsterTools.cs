@@ -3,6 +3,7 @@ using StardewValley;
 using StardewValley.Monsters;
 using System.Text.Json.Nodes;
 using Microsoft.Xna.Framework;
+using static StardewMCP.Tools.ToolRegistry;
 
 namespace StardewMCP.Tools;
 
@@ -146,22 +147,4 @@ public static class MonsterTools
         });
     }
 
-    // ── Schema builders ─────────────────────────────────────────────────────
-
-    private static JsonObject Tool(string name, string description, JsonObject inputSchema) =>
-        new() { ["name"] = name, ["description"] = description, ["inputSchema"] = inputSchema };
-
-    private static JsonObject Props(params (string Name, JsonObject Schema)[] props)
-    {
-        var properties = new JsonObject();
-        foreach (var (n, s) in props)
-            properties[n] = s;
-        return new JsonObject { ["type"] = "object", ["properties"] = properties };
-    }
-
-    private static (string, JsonObject) Str(string name, string description) =>
-        (name, new JsonObject { ["type"] = "string", ["description"] = description });
-
-    private static (string, JsonObject) Int(string name, string description) =>
-        (name, new JsonObject { ["type"] = "integer", ["description"] = description });
 }

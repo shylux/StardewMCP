@@ -4,6 +4,7 @@ using StardewValley.Companions;
 using StardewValley.Objects;
 using StardewValley.Objects.Trinkets;
 using System.Text.Json.Nodes;
+using static StardewMCP.Tools.ToolRegistry;
 
 namespace StardewMCP.Tools;
 
@@ -688,32 +689,9 @@ public static class PlayerTools
                 return "Invincibility disabled.";
             }
             p.temporarilyInvincible = true;
-            p.temporaryInvincibilityTimer = -1000000000;
+            p.temporaryInvincibilityTimer = -1_000_000_000; // large negative so the timer never expires naturally
             return "Invincibility enabled.";
         });
     }
 
-    // ── Schema builders (duplicated from NpcTools for independence) ──────────
-
-    private static JsonObject Tool(string name, string description, JsonObject inputSchema) =>
-        new()
-        {
-            ["name"] = name,
-            ["description"] = description,
-            ["inputSchema"] = inputSchema
-        };
-
-    private static JsonObject Props(params (string Name, JsonObject Schema)[] props)
-    {
-        var properties = new JsonObject();
-        foreach (var (n, s) in props)
-            properties[n] = s;
-        return new JsonObject { ["type"] = "object", ["properties"] = properties };
-    }
-
-    private static (string, JsonObject) Str(string name, string description) =>
-        (name, new JsonObject { ["type"] = "string", ["description"] = description });
-
-    private static (string, JsonObject) Int(string name, string description) =>
-        (name, new JsonObject { ["type"] = "integer", ["description"] = description });
 }

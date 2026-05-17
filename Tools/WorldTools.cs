@@ -7,6 +7,7 @@ using StardewValley.TerrainFeatures;
 using System.Text;
 using System.Text.Json.Nodes;
 using xTile.Dimensions;
+using static StardewMCP.Tools.ToolRegistry;
 
 namespace StardewMCP.Tools;
 
@@ -224,6 +225,7 @@ public static class WorldTools
 
             var sb = new StringBuilder();
             sb.AppendLine($"Surroundings within {radius} tiles of player ({ox}, {oy}) in {location.Name}:\n");
+            bool hasContent = false;
 
             // ── NPCs ────────────────────────────────────────────────────────
             var npcs = location.characters
@@ -236,6 +238,7 @@ public static class WorldTools
 
             if (npcs.Count > 0)
             {
+                hasContent = true;
                 sb.AppendLine("NPCs:");
                 foreach (var n in npcs) sb.AppendLine($"  {n}");
             }
@@ -252,6 +255,7 @@ public static class WorldTools
 
             if (monsters.Count > 0)
             {
+                hasContent = true;
                 sb.AppendLine("\nMonsters:");
                 foreach (var m in monsters) sb.AppendLine($"  {m}");
             }
@@ -312,6 +316,7 @@ public static class WorldTools
 
             if (furniture.Count > 0)
             {
+                hasContent = true;
                 sb.AppendLine("\nFurniture:");
                 foreach (var (_, text) in furniture.OrderBy(x => x.d))
                     sb.AppendLine($"  {text}");
@@ -319,6 +324,7 @@ public static class WorldTools
 
             if (objects.Count > 0)
             {
+                hasContent = true;
                 sb.AppendLine("\nObjects/Machines:");
                 foreach (var (_, text) in objects.OrderBy(x => x.d))
                     sb.AppendLine($"  {text}");
@@ -410,6 +416,7 @@ public static class WorldTools
 
             if (terrain.Count > 0)
             {
+                hasContent = true;
                 sb.AppendLine("\nTerrain:");
                 foreach (var (_, text) in terrain.OrderBy(x => x.d))
                     sb.AppendLine($"  {text}");
@@ -430,6 +437,7 @@ public static class WorldTools
 
                 if (buildings.Count > 0)
                 {
+                    hasContent = true;
                     sb.AppendLine("\nBuildings:");
                     foreach (var (_, text) in buildings)
                         sb.AppendLine($"  {text}");
@@ -467,6 +475,7 @@ public static class WorldTools
 
             if (tileActions.Count > 0)
             {
+                hasContent = true;
                 sb.AppendLine("\nInteractive Tiles:");
                 foreach (var (_, text) in tileActions.OrderBy(x => x.d))
                     sb.AppendLine($"  {text}");
@@ -482,11 +491,12 @@ public static class WorldTools
 
             if (exits.Count > 0)
             {
+                hasContent = true;
                 sb.AppendLine("\nExits:");
                 foreach (var e in exits) sb.AppendLine($"  {e}");
             }
 
-            if (sb.ToString().Trim().Split('\n').Length <= 1)
+            if (!hasContent)
                 sb.AppendLine("Nothing notable nearby.");
 
             return sb.ToString().TrimEnd();
@@ -1137,30 +1147,4 @@ public static class WorldTools
         });
     }
 
-    // ── Schema builders ─────────────────────────────────────────────────────
-
-    private static JsonObject Tool(string name, string description, JsonObject inputSchema) =>
-        new()
-        {
-            ["name"] = name,
-            ["description"] = description,
-            ["inputSchema"] = inputSchema
-        };
-
-    private static JsonObject Props(params (string Name, JsonObject Schema)[] props)
-    {
-        var properties = new JsonObject();
-        foreach (var (n, s) in props)
-            properties[n] = s;
-        return new JsonObject { ["type"] = "object", ["properties"] = properties };
-    }
-
-    private static (string, JsonObject) Str(string name, string description) =>
-        (name, new JsonObject { ["type"] = "string", ["description"] = description });
-
-    private static (string, JsonObject) Int(string name, string description) =>
-        (name, new JsonObject { ["type"] = "integer", ["description"] = description });
-
-    private static (string, JsonObject) Bool(string name, string description) =>
-        (name, new JsonObject { ["type"] = "boolean", ["description"] = description });
 }

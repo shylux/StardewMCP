@@ -2,6 +2,7 @@ using StardewModdingAPI;
 using StardewValley;
 using System.Text;
 using System.Text.Json.Nodes;
+using static StardewMCP.Tools.ToolRegistry;
 
 namespace StardewMCP.Tools;
 
@@ -400,7 +401,7 @@ public static class NpcTools
                 sb.AppendLine($"Roommate marriage: {(friendship.IsRoommate() ? "yes" : "no")}");
 
                 // Stardrop is given at 12.5 hearts (3125 pts), tracked via mail
-                var starDropMailKey = $"CF_Spouse";
+                var starDropMailKey = "CF_Spouse";
                 var hasStardrop = Game1.player.mailReceived.Contains(starDropMailKey);
                 sb.AppendLine($"Stardrop given: {(hasStardrop ? "yes" : friendship.Points >= 3125 ? "yes (≥12.5 hearts)" : "no (need 12.5 hearts)")}");
             }
@@ -455,27 +456,4 @@ public static class NpcTools
         _ => -1
     };
 
-    // ── Schema builders ─────────────────────────────────────────────────────
-
-    private static JsonObject Tool(string name, string description, JsonObject inputSchema) =>
-        new()
-        {
-            ["name"] = name,
-            ["description"] = description,
-            ["inputSchema"] = inputSchema
-        };
-
-    private static JsonObject Props(params (string Name, JsonObject Schema)[] props)
-    {
-        var properties = new JsonObject();
-        foreach (var (n, s) in props)
-            properties[n] = s;
-        return new JsonObject { ["type"] = "object", ["properties"] = properties };
-    }
-
-    private static (string, JsonObject) Str(string name, string description) =>
-        (name, new JsonObject { ["type"] = "string", ["description"] = description });
-
-    private static (string, JsonObject) Int(string name, string description) =>
-        (name, new JsonObject { ["type"] = "integer", ["description"] = description });
 }
