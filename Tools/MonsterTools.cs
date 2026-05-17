@@ -40,6 +40,20 @@ public static class MonsterTools
         ["shadow shaman"] = (pos, _) => new ShadowShaman(pos),
         ["squid kid"] = (pos, _) => new SquidKid(pos),
         ["leaper"] = (pos, _) => new Leaper(pos),
+        ["pepper rex"] = (pos, _) => new DinoMonster(pos),
+        ["dinosaur"] = (pos, _) => new DinoMonster(pos),
+        ["dino"] = (pos, _) => new DinoMonster(pos),
+        ["angry roger"] = (pos, _) => new AngryRoger(pos),
+        ["blue squid"] = (pos, _) => new BlueSquid(pos),
+        ["dwarvish sentry"] = (pos, _) => new DwarvishSentry(pos),
+        ["hot head"] = (pos, _) => new HotHead(pos),
+        ["lava lurk"] = (pos, _) => new LavaLurk(pos),
+        ["rock crab"] = (pos, _) => new RockCrab(pos),
+        ["rock golem"] = (pos, _) => new RockGolem(pos),
+        ["shadow girl"] = (pos, _) => new ShadowGirl(pos),
+        ["shadow guy"] = (pos, _) => new ShadowGuy(pos),
+        ["shooter"] = (pos, _) => new Shooter(pos),
+        ["spiker"] = (pos, _) => new Spiker(pos, 0),
     };
 
     public static void Register(ToolRegistry registry)
@@ -57,7 +71,9 @@ public static class MonsterTools
                 "Available types: slime, green slime, blue slime, red slime, purple slime, big slime, " +
                 "bat, frost bat, lava bat, iridium bat, bug, skeleton, mage skeleton, ghost, carbon ghost, " +
                 "putrid ghost, duggy, dust sprite, fly, mutant fly, grub, mutant grub, mummy, metal head, " +
-                "serpent, shadow brute, shadow shaman, squid kid, leaper.",
+                "serpent, shadow brute, shadow girl, shadow guy, shadow shaman, squid kid, leaper, " +
+                "pepper rex (dino), angry roger, blue squid, dwarvish sentry, hot head, lava lurk, " +
+                "rock crab, rock golem, shooter, spiker.",
                 Props(
                     Str("monster", "Monster type, e.g. 'slime', 'skeleton', 'bat'"),
                     Int("x", "Tile X to spawn at (default: 3 tiles east of player)"),
