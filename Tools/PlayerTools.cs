@@ -117,6 +117,68 @@ public static class PlayerTools
             SetSpeed
         );
 
+        registry.Add(
+            Tool("set_skill_level",
+                "Set a player skill to a specific level (0–10). Skills: farming, fishing, foraging, mining, combat.",
+                Props(
+                    Str("skill", "Skill name: farming, fishing, foraging, mining, or combat"),
+                    Int("level", "Level to set (0–10)")
+                )),
+            SetSkillLevel
+        );
+
+        registry.Add(
+            Tool("add_recipe",
+                "Unlock a crafting or cooking recipe by exact name (e.g. 'Chest', 'Fried Egg').",
+                Props(
+                    Str("name", "Exact recipe name as it appears in the game"),
+                    Str("type", "Recipe type: 'crafting' (default) or 'cooking'")
+                )),
+            AddRecipe
+        );
+
+        registry.Add(
+            Tool("add_profession",
+                "Add a profession to the player by numeric ID. " +
+                "Farming lvl5: Rancher=0, Tiller=1. Farming lvl10: Coopmaster=2, Shepherd=3, Artisan=4, Agriculturist=5. " +
+                "Fishing lvl5: Fisher=6, Trapper=7. Fishing lvl10: Angler=8, Pirate=9, Mariner=10, Luremaster=11. " +
+                "Foraging lvl5: Forester=12, Gatherer=13. Foraging lvl10: Lumberjack=14, Tapper=15, Botanist=16, Tracker=17. " +
+                "Mining lvl5: Miner=18, Geologist=19. Mining lvl10: Blacksmith=20, Prospector=21, Excavator=22, Gemologist=23. " +
+                "Combat lvl5: Fighter=24, Scout=25. Combat lvl10: Brute=26, Defender=27, Acrobat=28, Desperado=29.",
+                Props(Int("id", "Profession ID (see description)"))),
+            AddProfession
+        );
+
+        registry.Add(
+            Tool("manage_quest",
+                "Add, complete, or remove a quest by ID. Use action='clear' to clear the whole quest log.",
+                Props(
+                    Str("action", "One of: add, complete, remove, clear"),
+                    Str("id", "Quest ID (required for add/complete/remove, omit for clear)")
+                )),
+            ManageQuest
+        );
+
+        registry.Add(
+            Tool("add_walnut",
+                "Add golden walnuts (used to unlock Ginger Island content).",
+                Props(Int("amount", "Number of walnuts to add (default: 1)"))),
+            AddWalnut
+        );
+
+        registry.Add(
+            Tool("upgrade_house",
+                "Set the farmhouse upgrade level. Level 0 = starter, 1 = kitchen, 2 = kids' room, 3 = cellar.",
+                Props(Int("level", "Upgrade level 0–3"))),
+            UpgradeHouse
+        );
+
+        registry.Add(
+            Tool("toggle_invincible",
+                "Toggle player invincibility on or off. While invincible the player cannot take damage.",
+                Props()),
+            ToggleInvincible
+        );
     }
 
     // ── Handlers ────────────────────────────────────────────────────────────
@@ -498,6 +560,136 @@ public static class PlayerTools
             if (!Context.IsWorldReady) return "No game is loaded.";
             DebugCommands.TryHandle(new[] { "Speed", speed.ToString() });
             return $"Speed set to +{speed}.";
+        });
+    }
+
+    private static readonly int[] SkillExpThresholds = [0, 100, 380, 770, 1300, 2150, 3300, 4800, 6900, 10000, 15000];
+
+    private static Task<string> SetSkillLevel(JsonObject args)
+    {
+        var skill = (args["skill"]?.GetValue<string>() ?? "").Trim().ToLowerInvariant();
+        var level = Math.Clamp(args["level"]?.GetValue<int>() ?? 10, 0, 10);
+
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+
+            var p = Game1.player;
+            int index;
+            Action<int> setLevel;
+
+            switch (skill)
+            {
+                case "farming":   index = 0; setLevel = v => p.farmingLevel.Value = v; break;
+                case "fishing":   index = 1; setLevel = v => p.fishingLevel.Value = v; break;
+                case "foraging":  index = 2; setLevel = v => p.foragingLevel.Value = v; break;
+                case "mining":    index = 3; setLevel = v => p.miningLevel.Value = v; break;
+                case "combat":    index = 4; setLevel = v => p.combatLevel.Value = v; break;
+                default: return $"Unknown skill '{skill}'. Valid: farming, fishing, foraging, mining, combat.";
+            }
+
+            p.experiencePoints[index] = SkillExpThresholds[level];
+            setLevel(level);
+            return $"{char.ToUpper(skill[0]) + skill[1..]} set to level {level}.";
+        });
+    }
+
+    private static Task<string> AddRecipe(JsonObject args)
+    {
+        var name = (args["name"]?.GetValue<string>() ?? "").Trim();
+        var type = (args["type"]?.GetValue<string>() ?? "crafting").ToLowerInvariant();
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            if (string.IsNullOrWhiteSpace(name)) return "Recipe name is required.";
+            if (type == "cooking")
+            {
+                Game1.player.cookingRecipes[name] = 0;
+                return $"Cooking recipe '{name}' unlocked.";
+            }
+            Game1.player.craftingRecipes[name] = 0;
+            return $"Crafting recipe '{name}' unlocked.";
+        });
+    }
+
+    private static Task<string> AddProfession(JsonObject args)
+    {
+        var id = args["id"]?.GetValue<int>() ?? 0;
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            if (!Game1.player.professions.Contains(id))
+                Game1.player.professions.Add(id);
+            return $"Profession {id} added.";
+        });
+    }
+
+    private static Task<string> ManageQuest(JsonObject args)
+    {
+        var action = (args["action"]?.GetValue<string>() ?? "").ToLowerInvariant();
+        var id = (args["id"]?.GetValue<string>() ?? "").Trim();
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            switch (action)
+            {
+                case "add":
+                    if (string.IsNullOrWhiteSpace(id)) return "Quest ID required for action 'add'.";
+                    Game1.player.addQuest(id);
+                    return $"Quest '{id}' added.";
+                case "complete":
+                    if (string.IsNullOrWhiteSpace(id)) return "Quest ID required for action 'complete'.";
+                    Game1.player.completeQuest(id);
+                    return $"Quest '{id}' completed.";
+                case "remove":
+                    if (string.IsNullOrWhiteSpace(id)) return "Quest ID required for action 'remove'.";
+                    Game1.player.removeQuest(id);
+                    return $"Quest '{id}' removed.";
+                case "clear":
+                    Game1.player.questLog.Clear();
+                    return "Quest log cleared.";
+                default:
+                    return $"Unknown action '{action}'. Valid: add, complete, remove, clear.";
+            }
+        });
+    }
+
+    private static Task<string> AddWalnut(JsonObject args)
+    {
+        var amount = args["amount"]?.GetValue<int>() ?? 1;
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            DebugCommands.TryHandle(new[] { "Walnut", amount.ToString() });
+            return $"Added {amount} golden walnut(s).";
+        });
+    }
+
+    private static Task<string> UpgradeHouse(JsonObject args)
+    {
+        var level = Math.Clamp(args["level"]?.GetValue<int>() ?? 1, 0, 3);
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            DebugCommands.TryHandle(new[] { "HouseUpgrade", level.ToString() });
+            return $"Farmhouse set to upgrade level {level}.";
+        });
+    }
+
+    private static Task<string> ToggleInvincible(JsonObject args)
+    {
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            var p = Game1.player;
+            if (p.temporarilyInvincible)
+            {
+                p.temporaryInvincibilityTimer = 0;
+                return "Invincibility disabled.";
+            }
+            p.temporarilyInvincible = true;
+            p.temporaryInvincibilityTimer = -1000000000;
+            return "Invincibility enabled.";
         });
     }
 

@@ -127,9 +127,52 @@ public static class WorldTools
         );
 
         registry.Add(
+            Tool("advance_day",
+                "Skip to the start of the next in-game day (equivalent to sleeping). Energy is restored and the calendar advances.",
+                Props()),
+            AdvanceDay
+        );
+
+        registry.Add(
+            Tool("warp_to_mine_floor",
+                "Warp directly to a specific mine floor. Floors 1–120 are the regular mines; floors 121+ are the Skull Cavern.",
+                Props(Int("floor", "Mine floor number (e.g. 1, 40, 80, 120 for the regular mine; higher for Skull Cavern)"))),
+            WarpToMineFloor
+        );
+
+        registry.Add(
+            Tool("complete_community_center",
+                "Mark all Community Center rooms as complete and set all required mail flags.",
+                Props()),
+            CompleteCommunityCenterCmd
+        );
+
+        registry.Add(
+            Tool("grow_crops",
+                "Advance all crops in the current location by N days of growth.",
+                Props(Int("days", "Number of days to grow (default: 1)"))),
+            GrowCrops
+        );
+
+        registry.Add(
+            Tool("befriend_animals",
+                "Set the friendship of all farm animals in the current location to a given value (max 1000).",
+                Props(Int("friendship", "Friendship value 0–1000 (default: 1000 = max)"))),
+            BefriendAnimals
+        );
+
+        registry.Add(
+            Tool("pause_time",
+                "Toggle in-game time pausing on or off. While paused the clock stops advancing.",
+                Props()),
+            PauseTime
+        );
+
+        registry.Add(
             Tool("set_mail_flag",
                 "Add or remove a player mail flag to unlock game features. " +
-                "Common flags: 'ccBoilerRoom' (minecarts), 'ccCraftsRoom' (quarry bridge), " +
+                "NOTE: This tool can be buggy because there can be other things not tied to the flag that should also be changed. " +
+                "Common flags: 'ccBoilerRoom' (unlocks minecarts), 'ccCraftsRoom' (quarry bridge), " +
                 "'ccFishTank' (glittering boulder removed), 'ccPantry' (greenhouse), " +
                 "'ccVault' (bus to desert), 'ccBulletin' (fireworks/town square), " +
                 "'JojaMineCart' (Joja minecart upgrade), 'JojaVault' (Joja bus). " +
@@ -1026,6 +1069,71 @@ public static class WorldTools
             }
 
             return sb3.ToString();
+        });
+    }
+
+    private static Task<string> AdvanceDay(JsonObject args)
+    {
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            Game1.player.isInBed.Value = true;
+            Game1.player.sleptInTemporaryBed.Value = true;
+            Game1.currentLocation.answerDialogueAction("Sleep_Yes", null);
+            return "Advancing to next day...";
+        });
+    }
+
+    private static Task<string> WarpToMineFloor(JsonObject args)
+    {
+        var floor = args["floor"]?.GetValue<int>() ?? 1;
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            DebugCommands.TryHandle(new[] { "MineLevel", floor.ToString() });
+            return $"Warping to mine floor {floor}.";
+        });
+    }
+
+    private static Task<string> CompleteCommunityCenterCmd(JsonObject args)
+    {
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            DebugCommands.TryHandle(new[] { "CompleteCc" });
+            return "Community Center marked as complete. All rooms restored.";
+        });
+    }
+
+    private static Task<string> GrowCrops(JsonObject args)
+    {
+        var days = args["days"]?.GetValue<int>() ?? 1;
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            DebugCommands.TryHandle(new[] { "GrowCrops", days.ToString() });
+            return $"Grew all crops {days} day(s) in current location.";
+        });
+    }
+
+    private static Task<string> BefriendAnimals(JsonObject args)
+    {
+        var friendship = Math.Clamp(args["friendship"]?.GetValue<int>() ?? 1000, 0, 1000);
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            DebugCommands.TryHandle(new[] { "BefriendAnimals", friendship.ToString() });
+            return $"Set animal friendship to {friendship} in current location.";
+        });
+    }
+
+    private static Task<string> PauseTime(JsonObject args)
+    {
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            Game1.isTimePaused = !Game1.isTimePaused;
+            return Game1.isTimePaused ? "Time paused." : "Time resumed.";
         });
     }
 
