@@ -65,10 +65,10 @@ public static class WorldTools
         );
 
         registry.Add(
-            Tool("get_community_center_status",
-                "Get the completion status of the Community Center (or Joja route): which rooms are done and which bundles are still incomplete.",
+            Tool("get_bundle_status",
+                "Show every Community Center bundle with full item-by-item status: which items have been donated (✓) and which are still needed (✗), plus each bundle's reward. Organized by room.",
                 Props()),
-            GetCommunityCenterStatus,
+            GetBundleStatus,
             observeOnly: true
         );
 
@@ -167,6 +167,53 @@ public static class WorldTools
                 "Toggle in-game time pausing on or off. While paused the clock stops advancing.",
                 Props()),
             PauseTime
+        );
+
+        registry.Add(
+            Tool("clear_tile",
+                "Remove whatever is on a specific tile in the player's current location: trees, bushes, grass, small rocks, twigs, weeds, and large stumps/logs. " +
+                "Use get_surroundings or get_walkable_tiles to find tile coordinates.",
+                Props(
+                    Int("x", "Tile X coordinate"),
+                    Int("y", "Tile Y coordinate")
+                )),
+            ClearTile
+        );
+
+        registry.Add(
+            Tool("play_effect",
+                "Play a visual effect at a tile position. " +
+                "Effects: flash (white screen flash), glow (colored screen glow), rainbow (rainbow star burst), " +
+                "sparkle (particle sprinkles), lightning (lightning bolt strike). " +
+                "Position defaults to player's current tile if omitted.",
+                Props(
+                    Str("effect", "Effect name: flash, glow, rainbow, sparkle, lightning"),
+                    Int("x", "Tile X (optional, defaults to player position)"),
+                    Int("y", "Tile Y (optional, defaults to player position)"),
+                    Str("color", "Color for glow effect: red, green, blue, yellow, purple, white (default: white)")
+                )),
+            PlayEffect
+        );
+
+        registry.Add(
+            Tool("play_sound",
+                "Play a one-shot sound effect by name. " +
+                "Common sounds: coin, purchase, newArtifact, achievement, crystal, thunder, grunt, fishingRodCast, openChest, ship, drumkit0, stoneStep, hammer.",
+                Props(
+                    Str("sound", "Sound effect ID, e.g. 'coin', 'achievement', 'thunder'"),
+                    Int("pitch", "Optional pitch in cents (0 = default, negative = lower, positive = higher)")
+                )),
+            PlaySound
+        );
+
+        registry.Add(
+            Tool("play_music",
+                "Change the background music to a named track, or stop it. " +
+                "Common tracks: spring1, spring2, spring3, summer1, summer2, summer3, fall1, fall2, fall3, winter1, winter2, winter3, " +
+                "rain, ocean, breezy, Stardew Valley Overture, wedding, movieTheater, submarine. " +
+                "Use 'none' to stop the music.",
+                Props(Str("track", "Track name, e.g. 'spring1', 'rain', 'none'"))),
+            PlayMusic
         );
 
         registry.Add(
@@ -857,87 +904,131 @@ public static class WorldTools
         });
     }
 
-    private static Task<string> GetCommunityCenterStatus(JsonObject args)
+    private static Task<string> GetBundleStatus(JsonObject args)
     {
         return ModEntry.OnGameThread(() =>
         {
             if (!Context.IsWorldReady)
                 return "No game is loaded.";
 
-            // Joja route
             if (Utility.hasFinishedJojaRoute())
-                return "Joja route completed. The Community Center was converted to a Joja warehouse.";
-
-            var isJojaMember = Game1.player.mailReceived.Contains("JojaMember");
+                return "Joja route completed — Community Center was converted to a Joja warehouse.";
 
             var cc = Game1.locations.OfType<CommunityCenter>().FirstOrDefault();
             if (cc is null)
                 return "Community Center location not found.";
 
-            var sb = new StringBuilder();
-
-            if (cc.areAllAreasComplete())
-            {
-                sb.AppendLine("Community Center: FULLY RESTORED ✓");
-                return sb.ToString().TrimEnd();
-            }
-
-            if (isJojaMember)
-                sb.AppendLine("Note: You are a Joja member.");
-
-            sb.AppendLine("Community Center completion:\n");
-
             string[] areaNames = ["Crafts Room", "Pantry", "Fish Tank", "Boiler Room", "Vault", "Bulletin Board"];
 
-            for (int areaIndex = 0; areaIndex < cc.areasComplete.Count && areaIndex < areaNames.Length; areaIndex++)
+            // Group bundle data by area name
+            var bundlesByArea = new Dictionary<string, List<(int Index, string Data)>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (key, data) in Game1.netWorldState.Value.BundleData)
             {
-                var areaName = areaNames[areaIndex];
-                var areaComplete = cc.areasComplete[areaIndex];
-                sb.AppendLine($"{(areaComplete ? "✓" : "✗")} {areaName}");
+                var slash = key.IndexOf('/');
+                if (slash < 0) continue;
+                var area = key[..slash];
+                if (!int.TryParse(key[(slash + 1)..], out var idx)) continue;
+                if (!bundlesByArea.ContainsKey(area))
+                    bundlesByArea[area] = new();
+                bundlesByArea[area].Add((idx, data));
+            }
 
-                if (areaComplete) continue;
+            var sb = new StringBuilder();
+            sb.AppendLine(cc.areAllAreasComplete()
+                ? "Community Center: FULLY RESTORED ✓\n"
+                : "Community Center Bundle Status\n");
 
-                // Find incomplete bundles in this area
-                foreach (var (bundleKey, bundleData) in Game1.netWorldState.Value.BundleData)
+            for (int areaIdx = 0; areaIdx < areaNames.Length; areaIdx++)
+            {
+                var areaName = areaNames[areaIdx];
+                var areaComplete = areaIdx < cc.areasComplete.Count && cc.areasComplete[areaIdx];
+                var areaBundles = bundlesByArea.GetValueOrDefault(areaName) ?? new();
+
+                int totalBundles = areaBundles.Count;
+                int doneBundles = areaBundles.Count(b =>
+                    cc.bundles.ContainsKey(b.Index) && cc.bundles[b.Index].All(v => v));
+
+                var areaStatus = areaComplete ? "COMPLETE ✓" : $"{doneBundles}/{totalBundles} complete";
+                sb.AppendLine($"{areaName} [{areaStatus}]");
+
+                foreach (var (bundleIdx, bundleData) in areaBundles.OrderBy(b => b.Index))
                 {
-                    // Key format: "AreaName/bundleIndex"
-                    if (!bundleKey.StartsWith(areaName + "/")) continue;
-
                     var parts = bundleData.Split('/');
-                    // parts[0] = bundle name, parts[2] = items (item_id quality amount repeating)
-                    var bundleName = parts.Length > 0 ? parts[0] : bundleKey;
+                    var bundleName = parts.Length > 0 ? parts[0] : $"Bundle {bundleIdx}";
+                    var rewardStr = parts.Length > 1 ? DescribeBundleReward(parts[1]) : "";
 
-                    if (!int.TryParse(bundleKey.Split('/')[1], out var bundleIndex)) continue;
+                    bool[] slots = cc.bundles.ContainsKey(bundleIdx)
+                        ? cc.bundles[bundleIdx].ToArray()
+                        : Array.Empty<bool>();
+                    bool bundleComplete = slots.Length > 0 && slots.All(v => v);
 
-                    // Check completion via cc.bundles[bundleIndex]
-                    if (!cc.bundles.ContainsKey(bundleIndex)) continue;
-                    var bundleSlots = cc.bundles[bundleIndex];
-                    bool bundleComplete = true;
-                    foreach (var slot in bundleSlots) if (!slot) { bundleComplete = false; break; }
-                    if (bundleComplete) continue;
+                    var rewardLabel = string.IsNullOrEmpty(rewardStr) ? "" : $" — reward: {rewardStr}";
+                    sb.AppendLine($"  {(bundleComplete ? "✓" : "✗")} {bundleName}{rewardLabel}");
 
-                    sb.AppendLine($"  ✗ {bundleName}");
-
-                    // List missing items
-                    if (parts.Length > 2)
+                    // Show item slots only for incomplete bundles
+                    if (!bundleComplete && parts.Length > 2)
                     {
-                        var itemTokens = parts[2].Split(' ');
-                        int slotIndex = 0;
-                        for (int i = 0; i + 2 < itemTokens.Length; i += 3, slotIndex++)
+                        var tokens = parts[2].Split(' ');
+                        int slotIdx = 0;
+                        for (int i = 0; i + 2 < tokens.Length; i += 3, slotIdx++)
                         {
-                            if (slotIndex < bundleSlots.Length && bundleSlots[slotIndex]) continue;
-                            var itemId = itemTokens[i];
-                            var amount = itemTokens[i + 2];
+                            var itemId = tokens[i];
                             if (itemId == "-1") continue;
-                            var itemName = ItemRegistry.GetDataOrErrorItem($"(O){itemId}").DisplayName;
-                            sb.AppendLine($"    - {itemName}{(amount != "1" ? $" x{amount}" : "")}");
+
+                            int.TryParse(tokens[i + 1], out var quality);
+                            int.TryParse(tokens[i + 2], out var amount);
+
+                            var itemData = ItemRegistry.GetDataOrErrorItem($"(O){itemId}");
+                            var itemName = itemData.DisplayName;
+                            var qualityStr = quality switch { 1 => " (silver+)", 2 => " (gold+)", 4 => " (iridium)", _ => "" };
+                            var amountStr = amount > 1 ? $" x{amount}" : "";
+                            var donated = slotIdx < slots.Length && slots[slotIdx];
+                            sb.AppendLine($"    {(donated ? "✓" : "✗")} {itemName}{amountStr}{qualityStr}");
                         }
                     }
                 }
+
+                sb.AppendLine();
             }
 
             return sb.ToString().TrimEnd();
         });
+    }
+
+    private static string DescribeBundleReward(string rewardPart)
+    {
+        var tokens = rewardPart.Trim().Split(' ');
+        if (tokens.Length == 0) return "";
+
+        // Money reward: "Money 2000"
+        if (tokens[0].Equals("Money", StringComparison.OrdinalIgnoreCase))
+            return tokens.Length > 1 ? $"{tokens[1]}g" : "money";
+
+        // Big Craftable: "BO itemId amount"
+        if (tokens[0].Equals("BO", StringComparison.OrdinalIgnoreCase) && tokens.Length >= 3)
+        {
+            int.TryParse(tokens[2], out var amt);
+            var name = ItemRegistry.GetDataOrErrorItem($"(BC){tokens[1]}").DisplayName;
+            return amt > 1 ? $"{name} x{amt}" : name;
+        }
+
+        // Ring: "R itemId amount"
+        if (tokens[0].Equals("R", StringComparison.OrdinalIgnoreCase) && tokens.Length >= 3)
+        {
+            int.TryParse(tokens[2], out var amt);
+            var name = ItemRegistry.GetDataOrErrorItem($"(R){tokens[1]}").DisplayName;
+            return amt > 1 ? $"{name} x{amt}" : name;
+        }
+
+        // Standard object: "itemId quality amount"
+        if (tokens.Length >= 3 && int.TryParse(tokens[0], out var itemId) && itemId != -1)
+        {
+            int.TryParse(tokens[2], out var amt);
+            var name = ItemRegistry.GetDataOrErrorItem($"(O){tokens[0]}").DisplayName;
+            return amt > 1 ? $"{name} x{amt}" : name;
+        }
+
+        return "";
     }
 
     private static Task<string> ListRegistryItems(JsonObject args)
@@ -1079,6 +1170,139 @@ public static class WorldTools
             }
 
             return sb3.ToString();
+        });
+    }
+
+    private static Task<string> ClearTile(JsonObject args)
+    {
+        var x = args["x"]?.GetValue<int>() ?? 0;
+        var y = args["y"]?.GetValue<int>() ?? 0;
+
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+
+            var location = Game1.player.currentLocation;
+            var tile = new Vector2(x, y);
+            var removed = new List<string>();
+
+            // Terrain features: trees, bushes, grass, stumps, dirt
+            if (location.terrainFeatures.ContainsKey(tile))
+            {
+                var tf = location.terrainFeatures[tile];
+                removed.Add(tf.GetType().Name);
+                location.terrainFeatures.Remove(tile);
+            }
+
+            // Natural debris only: rocks, twigs, weeds (not placed objects like chests/machines)
+            if (location.objects.ContainsKey(tile))
+            {
+                var obj = location.objects[tile];
+                if (obj.Name is "Stone" or "Twig" or "Weeds" or "Fiber")
+                {
+                    removed.Add(obj.Name);
+                    location.objects.Remove(tile);
+                }
+            }
+
+            // Resource clumps: large stumps, logs, boulders (multi-tile)
+            var clumps = location.resourceClumps
+                .Where(c => x >= c.Tile.X && x < c.Tile.X + c.width.Value &&
+                            y >= c.Tile.Y && y < c.Tile.Y + c.height.Value)
+                .ToList();
+            foreach (var clump in clumps)
+            {
+                removed.Add($"resource clump ({clump.parentSheetIndex.Value})");
+                location.resourceClumps.Remove(clump);
+            }
+
+            return removed.Count > 0
+                ? $"Cleared at ({x}, {y}): {string.Join(", ", removed)}."
+                : $"Nothing to clear at ({x}, {y}).";
+        });
+    }
+
+    private static Task<string> PlayEffect(JsonObject args)
+    {
+        var effect = (args["effect"]?.GetValue<string>() ?? "").Trim().ToLowerInvariant();
+        var hasX = args["x"] is not null;
+        var hasY = args["y"] is not null;
+        var x = args["x"]?.GetValue<int>() ?? 0;
+        var y = args["y"]?.GetValue<int>() ?? 0;
+        var colorName = (args["color"]?.GetValue<string>() ?? "white").ToLowerInvariant();
+
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+
+            var location = Game1.player.currentLocation;
+            var tx = hasX ? x : Game1.player.TilePoint.X;
+            var ty = hasY ? y : Game1.player.TilePoint.Y;
+            var pixelPos = new Vector2(tx * Game1.tileSize, ty * Game1.tileSize);
+
+            switch (effect)
+            {
+                case "flash":
+                    Game1.flashAlpha = 1f;
+                    return "Screen flash triggered.";
+
+                case "glow":
+                    var color = colorName switch
+                    {
+                        "red"    => Color.Red,
+                        "green"  => Color.Green,
+                        "blue"   => Color.Blue,
+                        "yellow" => Color.Yellow,
+                        "purple" => Color.Purple,
+                        _        => Color.White,
+                    };
+                    Game1.screenGlowOnce(color * 0.8f, hold: false);
+                    return $"Screen glow triggered ({colorName}).";
+
+                case "rainbow":
+                    Utility.addRainbowStarExplosion(location, pixelPos, 20);
+                    return $"Rainbow star explosion at ({tx}, {ty}).";
+
+                case "sparkle":
+                    Utility.addSprinklesToLocation(location, tx, ty, 3, 3, 2000, 100, Color.White);
+                    return $"Sparkles at ({tx}, {ty}).";
+
+                case "lightning":
+                    Utility.drawLightningBolt(pixelPos, location);
+                    return $"Lightning bolt at ({tx}, {ty}).";
+
+                default:
+                    return $"Unknown effect '{effect}'. Valid: flash, glow, rainbow, sparkle, lightning.";
+            }
+        });
+    }
+
+    private static Task<string> PlaySound(JsonObject args)
+    {
+        var sound = (args["sound"]?.GetValue<string>() ?? "").Trim();
+        var hasPitch = args["pitch"] is not null;
+        var pitch = args["pitch"]?.GetValue<int>() ?? 0;
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            if (string.IsNullOrWhiteSpace(sound)) return "Sound ID is required.";
+            if (hasPitch)
+                Game1.playSound(sound, pitch);
+            else
+                Game1.playSound(sound);
+            return $"Played sound: {sound}.";
+        });
+    }
+
+    private static Task<string> PlayMusic(JsonObject args)
+    {
+        var track = (args["track"]?.GetValue<string>() ?? "").Trim();
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady) return "No game is loaded.";
+            if (string.IsNullOrWhiteSpace(track)) return "Track name is required. Use 'none' to stop music.";
+            Game1.changeMusicTrack(track);
+            return track == "none" ? "Music stopped." : $"Now playing: {track}.";
         });
     }
 

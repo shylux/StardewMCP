@@ -16,6 +16,7 @@ public class ToolRegistry
         WorldTools.Register(this);
         FarmTools.Register(this);
         MonsterTools.Register(this);
+        FishingTools.Register(this);
     }
 
     public void Add(JsonNode definition, Func<JsonObject, Task<string>> handler, bool observeOnly = false)

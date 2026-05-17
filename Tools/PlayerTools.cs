@@ -295,6 +295,9 @@ public static class PlayerTools
             if (!Context.IsWorldReady)
                 return "No game is loaded.";
 
+            string? exactId = null, partialId = null;
+            string? exactDisplay = null, partialDisplay = null;
+
             foreach (var typeDef in ItemRegistry.ItemTypes)
             {
                 foreach (var id in typeDef.GetAllIds())
@@ -302,15 +305,32 @@ public static class PlayerTools
                     var qualifiedId = typeDef.Identifier + id;
                     var data = ItemRegistry.GetData(qualifiedId);
                     if (data is null) continue;
-                    if (!data.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase) &&
-                        !data.InternalName.Contains(search, StringComparison.OrdinalIgnoreCase)) continue;
-                    var item = ItemRegistry.Create(qualifiedId, quantity);
-                    Game1.player.addItemByMenuIfNecessary(item);
-                    return $"Added {data.DisplayName} to inventory.";
+
+                    bool nameExact = data.DisplayName.Equals(search, StringComparison.OrdinalIgnoreCase)
+                                  || data.InternalName.Equals(search, StringComparison.OrdinalIgnoreCase);
+                    bool namePartial = data.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase)
+                                    || data.InternalName.Contains(search, StringComparison.OrdinalIgnoreCase);
+
+                    if (nameExact && exactId is null)
+                    {
+                        exactId = qualifiedId;
+                        exactDisplay = data.DisplayName;
+                    }
+                    else if (namePartial && partialId is null)
+                    {
+                        partialId = qualifiedId;
+                        partialDisplay = data.DisplayName;
+                    }
                 }
             }
 
-            return $"No item matching '{search}' found.";
+            var chosenId = exactId ?? partialId;
+            var chosenDisplay = exactDisplay ?? partialDisplay;
+            if (chosenId is null)
+                return $"No item matching '{search}' found.";
+
+            Game1.player.addItemByMenuIfNecessary(ItemRegistry.Create(chosenId, quantity));
+            return $"Added {chosenDisplay} to inventory.";
         });
     }
 
