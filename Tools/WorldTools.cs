@@ -37,6 +37,14 @@ public static class WorldTools
         );
 
         registry.Add(
+            Tool("list_items",
+                "List every item in the world: chests, storage furniture, items on tables, dropped items, the item recovery service, and the lost & found box. Use find_item instead when you want to filter by name.",
+                Props()),
+            ListItems,
+            observeOnly: true
+        );
+
+        registry.Add(
             Tool("get_location_names",
                 "List all valid location names that can be used with teleport_player.",
                 Props()),
@@ -519,9 +527,16 @@ public static class WorldTools
         });
     }
 
+    private static Task<string> ListItems(JsonObject args) => SearchItems("");
+
     private static Task<string> FindItem(JsonObject args)
     {
         var search = args["item_name"]?.GetValue<string>() ?? "";
+        return SearchItems(search);
+    }
+
+    private static Task<string> SearchItems(string search)
+    {
         return ModEntry.OnGameThread(() =>
         {
             if (!Context.IsWorldReady)
@@ -530,6 +545,7 @@ public static class WorldTools
             var results = new List<string>();
 
             bool Matches(Item item) =>
+                search.Length == 0 ||
                 item.Name.Contains(search, StringComparison.OrdinalIgnoreCase) ||
                 item.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase);
 
@@ -596,7 +612,7 @@ public static class WorldTools
             }
 
             if (results.Count == 0)
-                return $"No item matching '{search}' found.";
+                return search.Length == 0 ? "No items found anywhere." : $"No item matching '{search}' found.";
 
             return string.Join("\n", results);
         });
