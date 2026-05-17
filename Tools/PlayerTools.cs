@@ -1,5 +1,6 @@
 using StardewModdingAPI;
 using StardewValley;
+using StardewValley.Companions;
 using StardewValley.Objects;
 using StardewValley.Objects.Trinkets;
 using System.Text.Json.Nodes;
@@ -85,11 +86,12 @@ public static class PlayerTools
 
         registry.Add(
             Tool("equip_item",
-                "Equip an item directly to its slot. Supports hats, boots, rings, shirts, pants, and trinkets. " +
-                "For rings, use slot 'left' or 'right' (default: left).",
+                "Equip an item to its slot, or clear a slot by omitting item_name. " +
+                "Supports hats, boots, rings, shirts, pants, and trinkets. " +
+                "slot values: 'left'/'right' for rings, or 'hat', 'boots', 'shirt', 'pants', 'trinket' to unequip that slot.",
                 Props(
-                    Str("item_name", "Item name to equip, e.g. 'Witch Hat', 'Infinity Boots', 'Iridium Band'"),
-                    Str("slot", "Ring slot: 'left' or 'right' (only relevant for rings)")
+                    Str("item_name", "Item name to equip. Omit or leave empty to unequip the slot instead."),
+                    Str("slot", "Ring slot ('left'/'right'), or slot to clear when item_name is empty: hat, boots, left ring, right ring, shirt, pants, trinket.")
                 )),
             EquipItem
         );
@@ -114,6 +116,7 @@ public static class PlayerTools
                 Props(Int("speed", "Extra speed to add on top of base speed (e.g. 2 for noticeably faster, 5 for very fast)"))),
             SetSpeed
         );
+
     }
 
     // ── Handlers ────────────────────────────────────────────────────────────
@@ -357,6 +360,13 @@ public static class PlayerTools
         });
     }
 
+
+    private static void ReturnToInventory(Farmer p, Item? item)
+    {
+        if (item is not null)
+            p.addItemToInventory(item);
+    }
+
     private static Task<string> EquipItem(JsonObject args)
     {
         var search = args["item_name"]?.GetValue<string>() ?? "";
@@ -366,6 +376,28 @@ public static class PlayerTools
         {
             if (!Context.IsWorldReady)
                 return "No game is loaded.";
+
+            var p = Game1.player;
+            if (string.IsNullOrWhiteSpace(search))
+            {
+                switch (slot)
+                {
+                    case "hat": ReturnToInventory(p, p.hat.Value); p.hat.Value = null; return "Hat slot cleared.";
+                    case "boots": ReturnToInventory(p, p.boots.Value); p.boots.Value = null; return "Boots slot cleared.";
+                    case "left ring": case "left": ReturnToInventory(p, p.leftRing.Value); p.leftRing.Value = null; return "Left ring slot cleared.";
+                    case "right ring": case "right": ReturnToInventory(p, p.rightRing.Value); p.rightRing.Value = null; return "Right ring slot cleared.";
+                    case "shirt": ReturnToInventory(p, p.shirtItem.Value); p.shirtItem.Value = null; return "Shirt slot cleared.";
+                    case "pants": ReturnToInventory(p, p.pantsItem.Value); p.pantsItem.Value = null; return "Pants slot cleared.";
+                    case "trinket":
+                        p.UnapplyAllTrinketEffects();
+                        foreach (var t in p.trinketItems.ToList()) ReturnToInventory(p, t);
+                        p.trinketItems.Clear();
+                        foreach (var c in p.companions.ToList())
+                            p.RemoveCompanion(c);
+                        return "Trinket slot cleared.";
+                    default: return $"Unknown slot '{slot}'. Valid: hat, boots, left ring, right ring, shirt, pants, trinket.";
+                }
+            }
 
             foreach (var typeDef in ItemRegistry.ItemTypes)
             {
@@ -378,39 +410,52 @@ public static class PlayerTools
                         !data.InternalName.Contains(search, StringComparison.OrdinalIgnoreCase)) continue;
 
                     var item = ItemRegistry.Create(qualifiedId);
-                    var p = Game1.player;
 
                     if (item is Hat hat)
                     {
+                        ReturnToInventory(p, p.hat.Value);
                         p.hat.Value = hat;
                         return $"Equipped hat: {data.DisplayName}.";
                     }
                     if (item is Boots boots)
                     {
+                        ReturnToInventory(p, p.boots.Value);
                         p.boots.Value = boots;
                         return $"Equipped boots: {data.DisplayName}.";
                     }
                     if (item is Ring ring)
                     {
                         if (slot == "right")
+                        {
+                            ReturnToInventory(p, p.rightRing.Value);
                             p.rightRing.Value = ring;
+                        }
                         else
+                        {
+                            ReturnToInventory(p, p.leftRing.Value);
                             p.leftRing.Value = ring;
+                        }
                         return $"Equipped ring to {slot} slot: {data.DisplayName}.";
                     }
                     if (item is Clothing clothing)
                     {
-                        if (clothing.clothesType.Value == Clothing.ClothesType.Shirt)
+                        if ((int)clothing.clothesType.Value == 0)
                         {
+                            ReturnToInventory(p, p.shirtItem.Value);
                             p.shirtItem.Value = clothing;
                             return $"Equipped shirt: {data.DisplayName}.";
                         }
+                        ReturnToInventory(p, p.pantsItem.Value);
                         p.pantsItem.Value = clothing;
                         return $"Equipped pants: {data.DisplayName}.";
                     }
                     if (item is Trinket trinket)
                     {
-                        p.trinketItem.Value = trinket;
+                        p.UnapplyAllTrinketEffects();
+                        foreach (var t in p.trinketItems.ToList()) ReturnToInventory(p, t);
+                        p.trinketItems.Clear();
+                        p.trinketItems.Add(trinket);
+                        p.ApplyAllTrinketEffects();
                         return $"Equipped trinket: {data.DisplayName}.";
                     }
 

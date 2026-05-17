@@ -1,3 +1,4 @@
+using Microsoft.Xna.Framework;
 using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Locations;
@@ -5,6 +6,7 @@ using StardewValley.Objects;
 using StardewValley.TerrainFeatures;
 using System.Text;
 using System.Text.Json.Nodes;
+using xTile.Dimensions;
 
 namespace StardewMCP.Tools;
 
@@ -70,6 +72,20 @@ public static class WorldTools
         );
 
         registry.Add(
+            Tool("get_walkable_tiles",
+                "Return a walkability grid for a given area. Shows which tiles the player can walk on. " +
+                "Use this to find safe teleport destinations or understand the layout of an area.",
+                Props(
+                    Str("location_name", "Location to scan, e.g. Farm, Saloon, IslandFarmHouse"),
+                    Int("x", "Center tile X"),
+                    Int("y", "Center tile Y"),
+                    Int("radius", "Tile radius to scan (default: 5, max: 20)")
+                )),
+            GetWalkableTiles,
+            observeOnly: true
+        );
+
+        registry.Add(
             Tool("get_location_warps",
                 "List all exit-trigger tiles in a location and where they lead. Avoid these tile positions when choosing teleport coordinates — stepping on them warps the player out of the location.",
                 Props(Str("location_name", "Location name, e.g. FarmHouse, Farm, Town"))),
@@ -108,6 +124,21 @@ public static class WorldTools
                     Int("year", "Year number (1 or higher)")
                 )),
             SetDate
+        );
+
+        registry.Add(
+            Tool("set_mail_flag",
+                "Add or remove a player mail flag to unlock game features. " +
+                "Common flags: 'ccBoilerRoom' (minecarts), 'ccCraftsRoom' (quarry bridge), " +
+                "'ccFishTank' (glittering boulder removed), 'ccPantry' (greenhouse), " +
+                "'ccVault' (bus to desert), 'ccBulletin' (fireworks/town square), " +
+                "'JojaMineCart' (Joja minecart upgrade), 'JojaVault' (Joja bus). " +
+                "Use received=false to remove a flag.",
+                Props(
+                    Str("flag", "Mail flag name"),
+                    Bool("received", "true to add the flag (default), false to remove it")
+                )),
+            SetMailFlag
         );
     }
 
@@ -223,7 +254,14 @@ public static class WorldTools
             {
                 var d = Dist(ox, oy, f.TileLocation.X, f.TileLocation.Y);
                 if (d > radius) continue;
-                var desc = f.DisplayName;
+                var kind = f switch
+                {
+                    TV => "[TV] ",
+                    BedFurniture => "[Bed] ",
+                    StorageFurniture => "[Storage] ",
+                    _ => ""
+                };
+                var desc = kind + f.DisplayName;
                 if (f.heldObject.Value is { } held)
                     desc += $" (holding {held.DisplayName})";
                 furniture.Add((d, $"{desc} ({Dir(ox, oy, f.TileLocation.X, f.TileLocation.Y)}, {d:F1}t) at ({(int)f.TileLocation.X},{(int)f.TileLocation.Y})"));
@@ -335,9 +373,8 @@ public static class WorldTools
             }
 
             // ── Buildings ────────────────────────────────────────────────────
-            if (location is Farm farm)
             {
-                var buildings = farm.buildings
+                var buildings = location.buildings
                     .Select(b => {
                         var tx = b.tileX.Value + b.tilesWide.Value / 2;
                         var ty = b.tileY.Value + b.tilesHigh.Value / 2;
@@ -354,6 +391,42 @@ public static class WorldTools
                     foreach (var (_, text) in buildings)
                         sb.AppendLine($"  {text}");
                 }
+            }
+
+            // ── Tile Actions (ladders, elevators, mine carts, shops…) ────────
+            var tileActions = new List<(double d, string text)>();
+            for (int ty2 = oy - radius; ty2 <= oy + radius; ty2++)
+            {
+                for (int tx2 = ox - radius; tx2 <= ox + radius; tx2++)
+                {
+                    var action = location.doesTileHaveProperty(tx2, ty2, "Action", "Buildings");
+                    if (action is null) continue;
+                    if (action.StartsWith("Warp ")) continue; // already in Exits
+                    var d = Dist(ox, oy, tx2, ty2);
+                    if (d > radius) continue;
+                    var parts = action.Split(' ', 2);
+                    var label = parts[0];
+                    var detail = parts.Length > 1 ? parts[1] : null;
+                    // Resolve game string references (mirrors GameLocation.performAction Message logic)
+                    if (detail != null)
+                    {
+                        string? resolved = null;
+                        try { resolved = Game1.content.LoadStringReturnNullIfNotFound(detail.Trim()); } catch { }
+                        if (resolved is null)
+                            try { resolved = Game1.content.LoadStringReturnNullIfNotFound("Strings\\StringsFromMaps:" + detail.Trim().Replace("\"", "")); } catch { }
+                        if (resolved != null)
+                            detail = resolved;
+                    }
+                    var display = detail != null ? $"{label}: {detail}" : label;
+                    tileActions.Add((d, $"{display} ({Dir(ox, oy, tx2, ty2)}, {d:F1}t) at ({tx2},{ty2})"));
+                }
+            }
+
+            if (tileActions.Count > 0)
+            {
+                sb.AppendLine("\nInteractive Tiles:");
+                foreach (var (_, text) in tileActions.OrderBy(x => x.d))
+                    sb.AppendLine($"  {text}");
             }
 
             // ── Exits / Warps ────────────────────────────────────────────────
@@ -513,6 +586,33 @@ public static class WorldTools
 
             var d = Game1.Date;
             return $"Date set to {d.Season} {d.DayOfMonth}, Year {d.Year}.";
+        });
+    }
+
+    private static Task<string> SetMailFlag(JsonObject args)
+    {
+        var flag = (args["flag"]?.GetValue<string>() ?? "").Trim();
+        var received = args["received"]?.GetValue<bool>() ?? true;
+
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady)
+                return "No game is loaded.";
+
+            if (string.IsNullOrWhiteSpace(flag))
+                return "Flag name is required.";
+
+            if (received)
+            {
+                if (!Game1.player.mailReceived.Contains(flag))
+                    Game1.player.mailReceived.Add(flag);
+                return $"Mail flag '{flag}' added.";
+            }
+            else
+            {
+                Game1.player.mailReceived.Remove(flag);
+                return $"Mail flag '{flag}' removed.";
+            }
         });
     }
 
@@ -835,11 +935,97 @@ public static class WorldTools
             if (location.warps.Count == 0)
                 return $"{locationName} has no warp points.";
 
-            var lines = location.warps
-                .Select(w => $"  ({w.X}, {w.Y}) → {w.TargetName} ({w.TargetX}, {w.TargetY})")
-                .ToList();
+            var sb2 = new StringBuilder($"Warps in {locationName}:\n");
+            foreach (var w in location.warps)
+            {
+                sb2.AppendLine($"  ({w.X}, {w.Y}) → {w.TargetName} ({w.TargetX}, {w.TargetY})");
+                var safe = WalkableTilesAround(location, w.X, w.Y, 1)
+                    .Where(t => t != (w.X, w.Y))
+                    .Select(t => $"({t.X},{t.Y})");
+                sb2.AppendLine($"    Safe arrival tiles: {string.Join(", ", safe)}");
+            }
+            return sb2.ToString().TrimEnd();
+        });
+    }
 
-            return $"Warps in {locationName}:\n" + string.Join("\n", lines);
+    // ── Walkability ─────────────────────────────────────────────────────────
+
+    private static bool IsTileWalkable(GameLocation location, int x, int y)
+    {
+        var layer = location.map.Layers[0];
+        if (x < 0 || y < 0 || x >= layer.LayerWidth || y >= layer.LayerHeight) return false;
+        return location.isTilePassable(new Location(x, y), Game1.viewport);
+    }
+
+    private static List<(int X, int Y)> WalkableTilesAround(GameLocation location, int cx, int cy, int radius)
+    {
+        var result = new List<(int, int)>();
+        for (int dy = -radius; dy <= radius; dy++)
+            for (int dx = -radius; dx <= radius; dx++)
+                if (IsTileWalkable(location, cx + dx, cy + dy))
+                    result.Add((cx + dx, cy + dy));
+        return result;
+    }
+
+    private static Task<string> GetWalkableTiles(JsonObject args)
+    {
+        var locationName = args["location_name"]?.GetValue<string>() ?? "";
+        var cx = args["x"]?.GetValue<int>() ?? 0;
+        var cy = args["y"]?.GetValue<int>() ?? 0;
+        var radius = Math.Clamp(args["radius"]?.GetValue<int>() ?? 5, 1, 20);
+
+        return ModEntry.OnGameThread(() =>
+        {
+            if (!Context.IsWorldReady)
+                return "No game is loaded.";
+
+            var location = Game1.getLocationFromName(locationName);
+            if (location is null)
+                return $"Location '{locationName}' not found.";
+
+            // Build warp lookup within the scan area
+            const string markers = "123456789abcdefghijklmnopqrstuvwxyz";
+            var warpsInRange = location.warps
+                .Where(w => Math.Abs(w.X - cx) <= radius && Math.Abs(w.Y - cy) <= radius)
+                .ToList();
+            var warpMarker = new Dictionary<(int, int), char>();
+            for (int i = 0; i < warpsInRange.Count && i < markers.Length; i++)
+                warpMarker[(warpsInRange[i].X, warpsInRange[i].Y)] = markers[i];
+
+            var sb3 = new StringBuilder();
+            sb3.AppendLine($"Walkability grid — {locationName} centered on ({cx},{cy}) radius {radius}:");
+            sb3.AppendLine("  '.' = walkable, '#' = blocked, '+' = center, digit/letter = warp\n");
+
+            for (int dy = -radius; dy <= radius; dy++)
+            {
+                sb3.Append("  ");
+                for (int dx = -radius; dx <= radius; dx++)
+                {
+                    int tx = cx + dx, ty = cy + dy;
+                    if (dx == 0 && dy == 0)
+                        sb3.Append('+');
+                    else if (warpMarker.TryGetValue((tx, ty), out var m))
+                        sb3.Append(m);
+                    else
+                        sb3.Append(IsTileWalkable(location, tx, ty) ? '.' : '#');
+                }
+                sb3.AppendLine();
+            }
+
+            var walkableCount = WalkableTilesAround(location, cx, cy, radius).Count;
+            sb3.Append($"\n{walkableCount} walkable tile(s) in range.");
+
+            if (warpMarker.Count > 0)
+            {
+                sb3.AppendLine("\n\nWarp legend:");
+                for (int i = 0; i < warpsInRange.Count && i < markers.Length; i++)
+                {
+                    var w = warpsInRange[i];
+                    sb3.AppendLine($"  {markers[i]}: ({w.X},{w.Y}) → {w.TargetName} ({w.TargetX},{w.TargetY})");
+                }
+            }
+
+            return sb3.ToString();
         });
     }
 
@@ -866,4 +1052,7 @@ public static class WorldTools
 
     private static (string, JsonObject) Int(string name, string description) =>
         (name, new JsonObject { ["type"] = "integer", ["description"] = description });
+
+    private static (string, JsonObject) Bool(string name, string description) =>
+        (name, new JsonObject { ["type"] = "boolean", ["description"] = description });
 }
