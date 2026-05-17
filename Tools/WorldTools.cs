@@ -192,6 +192,25 @@ public static class WorldTools
                 objects.Add((d, $"Dropped: {debris.item.DisplayName}{stackInfo} ({Dir(ox, oy, px, py)}, {d:F1}t)"));
             }
 
+            // ── Furniture ────────────────────────────────────────────────────
+            var furniture = new List<(double d, string text)>();
+            foreach (var f in location.furniture)
+            {
+                var d = Dist(ox, oy, f.TileLocation.X, f.TileLocation.Y);
+                if (d > radius) continue;
+                var desc = f.DisplayName;
+                if (f.heldObject.Value is { } held)
+                    desc += $" (holding {held.DisplayName})";
+                furniture.Add((d, $"{desc} ({Dir(ox, oy, f.TileLocation.X, f.TileLocation.Y)}, {d:F1}t) at ({(int)f.TileLocation.X},{(int)f.TileLocation.Y})"));
+            }
+
+            if (furniture.Count > 0)
+            {
+                sb.AppendLine("\nFurniture:");
+                foreach (var (_, text) in furniture.OrderBy(x => x.d))
+                    sb.AppendLine($"  {text}");
+            }
+
             if (objects.Count > 0)
             {
                 sb.AppendLine("\nObjects/Machines:");
