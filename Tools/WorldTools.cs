@@ -975,11 +975,10 @@ public static class WorldTools
                             var itemId = tokens[i];
                             if (itemId == "-1") continue;
 
-                            int.TryParse(tokens[i + 1], out var quality);
-                            int.TryParse(tokens[i + 2], out var amount);
+                            int.TryParse(tokens[i + 1], out var amount);
+                            int.TryParse(tokens[i + 2], out var quality);
 
-                            var itemData = ItemRegistry.GetDataOrErrorItem($"(O){itemId}");
-                            var itemName = itemData.DisplayName;
+                            var itemName = ResolveItemName(itemId);
                             var qualityStr = quality switch { 1 => " (silver+)", 2 => " (gold+)", 4 => " (iridium)", _ => "" };
                             var amountStr = amount > 1 ? $" x{amount}" : "";
                             var donated = slotIdx < slots.Length && slots[slotIdx];
@@ -993,6 +992,26 @@ public static class WorldTools
 
             return sb.ToString().TrimEnd();
         });
+    }
+
+    private static readonly string[] ItemTypePrefixes = ["(O)", "(R)", "(BC)", "(W)", "(B)", "(H)", "(F)", "(TR)"];
+
+    private static string ResolveItemName(string unqualifiedId)
+    {
+        foreach (var prefix in ItemTypePrefixes)
+        {
+            var data = ItemRegistry.GetData(prefix + unqualifiedId);
+            if (data != null) return data.DisplayName;
+        }
+        // Rings aren't in the ItemRegistry in 1.6 — instantiate directly to get the name.
+        try
+        {
+            var ring = new Ring(unqualifiedId);
+            if (!string.IsNullOrEmpty(ring.DisplayName))
+                return ring.DisplayName;
+        }
+        catch { }
+        return ItemRegistry.GetDataOrErrorItem("(O)" + unqualifiedId).DisplayName;
     }
 
     private static string DescribeBundleReward(string rewardPart)
@@ -1020,11 +1039,11 @@ public static class WorldTools
             return amt > 1 ? $"{name} x{amt}" : name;
         }
 
-        // Standard object: "itemId quality amount"
+        // Standard object: "itemId quality amount" — try all type prefixes since rings etc. have no explicit prefix
         if (tokens.Length >= 3 && int.TryParse(tokens[0], out var itemId) && itemId != -1)
         {
             int.TryParse(tokens[2], out var amt);
-            var name = ItemRegistry.GetDataOrErrorItem($"(O){tokens[0]}").DisplayName;
+            var name = ResolveItemName(tokens[0]);
             return amt > 1 ? $"{name} x{amt}" : name;
         }
 
